@@ -1,6 +1,16 @@
 # Code by Jeger Broxterman #broxterman@strw.leidenuniv.nl
 # cite paper: https://ui.adsabs.harvard.edu/abs/2023arXiv231208450B/abstract
 
+import numpy as np
+import healpy as hp
+from astropy.cosmology import z_at_value
+from astropy import units as u
+import unyt
+import frogress
+import copy
+unyt.c.convert_to_units(unyt.km / unyt.s)
+
+
 class Raytracing:
     def __init__(self, overdensities, cosmology, comoving_edges,nside, NGP = False, volume_weighted = True):
         
@@ -72,7 +82,7 @@ class Raytracing:
 
         lrange, emm = hp.Alm.getlm(lmax = 3*self.nside-1)
 
-        psi_lm = -K_lm * 2 / lrange / (lrange + 1)  # A warning may occur as the first coefficient is undefined 
+        psi_lm = - K_lm * 2 / lrange / (lrange + 1)  # A warning may occur as the first coefficient is undefined 
         psi_lm[0] = 0 # It is set to zero manually after
 
         _, dtheta, dphi = hp.alm2map_der1(psi_lm, self.nside)  # healpy already scales dphi by sin(theta)
@@ -303,7 +313,7 @@ class Raytracing:
 
 
 
-            if i_shell ==0:
+            if i_shell ==0: 
                 i_shell_ = i_shell + 1
                 factor = (self.plane_distances[i_shell_]/ self.plane_distances[i_shell_ + 1]
                     * (self.plane_distances[i_shell_ + 1] - self.plane_distances[i_shell_ - 1])
@@ -321,9 +331,7 @@ class Raytracing:
             self.mag_matrix[0, 0, 2, :] = (
                 (1 - factor) * self.mag_matrix[0, 0, 0, :]
                 + factor * self.mag_matrix[0, 0, 1, :]
-                - factor2
-                * (
-                    ray_shear_matrix[0, :] * self.mag_matrix[0, 0, 1, :]
+                - factor2 * (ray_shear_matrix[0, :] * self.mag_matrix[0, 0, 1, :]
                     + ray_shear_matrix[1, :] * self.mag_matrix[1, 0, 1, :]
                 )
             )

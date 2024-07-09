@@ -1,45 +1,54 @@
-mask: /gpfs/fs0/project/r/rbond/jiaqu/actpol/DR6_plus/masks/act_mask_fejer1_20220316_GAL070_rms_70.00_downgrade_3dg.fits  #check
-data_maps_path: /home/s/sievers/kaper/scratch/lenspipe/sim_run/maps/  #check
-data_maps_fn_pattern: sim_cmb_night_%s_%s_3pass_1way_set%s_map.fits #check
-d2_data_maps_path: /home/s/sievers/kaper/scratch/lenspipe/sim_run/d2/ #check
+mask: /gpfs/fs0/project/r/rbond/jiaqu/actpol/DR6_plus/masks/act_mask_fejer1_20220316_GAL070_rms_70.00_downgrade_3dg.fits
+fullres_path: /gpfs/fs0/project/r/rbond/jiaqu/actpol/DR6_plus/masks/act_mask_fejer1_20220316_GAL070_rms_70.00_downgrade_None.fits
 catalog_large: /gpfs/fs0/project/r/rbond/msyriac/catalogs/inpaint_catalogs_20220316/union_catalog_large_20220316.csv
 catalog_regular: /gpfs/fs0/project/r/rbond/msyriac/catalogs/inpaint_catalogs_20220316/union_catalog_regular_20220316.csv
-inpainted_path: /home/s/sievers/kaper/scratch/lenspipe/sim_run/inpainted/
-inp_srcfree_stack_maps_fn: ip_%s
-inp_srcfree_coadd_maps_fn: ip_%s
-fullres_path: /gpfs/fs0/project/r/rbond/jiaqu/actpol/DR6_plus/masks/act_mask_fejer1_20220316_GAL070_rms_70.00_downgrade_None.fits
 nemomodel_f090: /home/r/rbond/jiaqu/sims/models/nemomodel_dr6_all_clustersSNR5090down2.fits
 nemomodel_f150: /home/r/rbond/jiaqu/sims/models/nemomodel_dr6_all_clustersSNR5150down2.fits
 szbeam150: /home/r/rbond/sigurdkn/project/actpol/map_coadd/20200228/inputs/beams/s16_pa2_f150_nohwp_night_beam_tform_jitter.txt
 szbeam90: /home/r/rbond/sigurdkn/project/actpol/map_coadd/20200228/inputs/beams/s16_pa3_f090_nohwp_night_beam_tform_jitter.txt
 beams_path: /home/r/rbond/jiaqu/scratch/DR6/maps/sims/beams/20230902/
-kcoadd_path: /home/s/sievers/kaper/scratch/lenspipe/sim_run/kcoadd/
-kcoadd_noise_weights: 1dweights/map_noise_%s_%s.txt
 calibration: /home/r/rbond/jiaqu/calibration/dr6_v4_230523/map_making_tf_ACTxNPIPE_NPIPExNPIPE_logistic/tf_fit_dr6_%s_%s.dat
-kcoadded_alms: kcoadd_data_tszsub_%s_%s.fits 
 fg_path: /home/s/sievers/kaper/scratch/foregrounds/
 fg_f150: fg_nonoise_alms_0145.fits
 fg_f090: fg_nonoise_alms_0093.fits
-noise_sims_path: /gpfs/fs0/project/r/rbond/jiaqu/actpol/DR6_plus/noise_sims/ #check 
-noise_sims_split_fn_pattern: act_dr6v4_fdw_cmbmask_%s_lmax5400_4way_set%s_noise_sim_map%s.fits #check
-filter_path: /home/s/sievers/kaper/scratch/lenspipe/sim_run/filter_stage/ #check
+noise_sims_path: /gpfs/fs0/project/r/rbond/jiaqu/actpol/DR6_plus/noise_sims/
+noise_sims_split_fn_pattern: act_dr6v4_fdw_cmbmask_%s_lmax5400_4way_set%s_noise_sim_map%s.fits
+profile: /home/s/sievers/kaper/gitreps/so-lenspipe/data/tsz_profile5000.txt
+nsims_iv: 40
+nsims_mf: 100
+nsims_rdn0: 100
+nsims_n1: 100
+mlmax: 4000
+lmin: 600
+lmax: 3000
+nsplits: 1
+data_maps_path: /home/s/sievers/kaper/scratch/lenspipe/sim_run/maps/
+data_maps_fn_pattern: sim_cmb_night_%s_%s_3pass_1way_set%s_map.fits
+d2_data_maps_path: /home/s/sievers/kaper/scratch/lenspipe/sim_run/d2/
+inpainted_path: /home/s/sievers/kaper/scratch/lenspipe/sim_run/inpainted/
+inp_srcfree_stack_maps_fn: ip_%s
+inp_srcfree_coadd_maps_fn: ip_%s
+kcoadd_path: /home/s/sievers/kaper/scratch/lenspipe/sim_run/kcoadd/
+kcoadd_noise_weights: 1dweights/map_noise_%s_%s.txt
+kcoadded_alms: kcoadd_data_tszsub_%s_%s.fits 
+if_sims_path: /home/s/sievers/kaper/scratch/lenspipe/sim_run/if_sims/
+if_sims_fn_pattern_coadd: kcoadd_coadd_alm_set%s_%s.fits
+if_sims_fn_pattern_split: kcoadd_alm_set%s_%s_split_%s.fits
+filter_path: /home/s/sievers/kaper/scratch/lenspipe/sim_run/filter_stage/
 filter_fnnpy: filters.npy
 filter_fntxt: filters.txt
 tcl_fndict: tcl_dict.npy
-norm_path: /home/s/sievers/kaper/scratch/lenspipe/sim_run/norm_stage/ #check
+norm_path: /home/s/sievers/kaper/scratch/lenspipe/sim_run/norm_stage/
 Rsrctt_fn: R_src_tt%s_lmax%s.txt
 Nl_g_bh_fn: Nl_g_bh%s_lmax%s.txt
 Als_fn: Als_lmin%s_lmax%s.npy
 N0g_fn: N0g_lmin%s_lmax%s.txt
 N0c_fn: N0c_lmin%s_lmax%s.txt
-mf_path: /home/s/sievers/kaper/scratch/lenspipe/sim_run/mf_stage/ #check
-mf_sims_path: /home/s/sievers/kaper/scratch/lenspipe/sim_run/mf_sims/ #check
+mf_path: /home/s/sievers/kaper/scratch/lenspipe/sim_run/mf_stage/
+mf_sims_path: /home/s/sievers/kaper/scratch/lenspipe/sim_run/mf_sims/
 mf_grad_fn: mf_set%s_%s%s_lmin%s_lmax%s_alm_%s.fits
 mf_curl_fn: mfcurl_set%s_%s%s_lmin%s_lmax%s_alm_%s.fits
-mf_sims_fn_pattern: kcoadd_noiseless_alm_set%s_%s.fits #same as inverse variance sims
-if_sims_path: /home/s/sievers/kaper/scratch/lenspipe/sim_run/if_sims/
-if_sims_fn_pattern_coadd: kcoadd_coadd_alm_set%s_%s.fits
-if_sims_fn_pattern_split: kcoadd_alm_set%s_%s_split_%s.fits
+mf_sims_fn_pattern: kcoadd_noiseless_alm_set%s_%s.fits 
 ps_path: /home/s/sievers/kaper/scratch/lenspipe/sim_run/spectrum_stage/
 ps_coaddgrad_fn: coadd_%ssplitlensingmap%s_blind%s.fits
 ps_coaddcurl_fn: coaddc_%ssplitlensingmap%s_blind%s.fits
@@ -54,12 +63,3 @@ rdn0_fn: rdn0_bh%s_est%s_s%s.npy
 mcn0_fn: mcn0_bh%s_est%s_s%s.npy
 n1_path: /home/s/sievers/kaper/scratch/lenspipe/sim_run/n1_stage/
 n1_fn: mcn1_bh%s_est%s.npy
-profile: /home/s/sievers/kaper/gitreps/so-lenspipe/data/tsz_profile5000.txt
-nsims_iv: 40
-nsims_mf: 100
-nsims_rdn0: 100
-nsims_n1: 100
-mlmax: 4000
-lmin: 600
-lmax: 3000
-nsplits: 1

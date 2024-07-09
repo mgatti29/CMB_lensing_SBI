@@ -23,6 +23,7 @@ fp=/home/s/sievers/kaper/gitreps/CMB_lensing_SBI/code/lensing_pipeline/filepaths
 #------
 #MAKING MOCK DATA ####
 #mpirun -n 1 --bind-to none python make_mock_init.py
+
 #-----
 #preprocessing
 #mpirun -n 1 --bind-to none python downgrade.py --filepath ${fp} --qid ${qid} --prepare_maps --prepare_ivars --coadd
@@ -33,6 +34,10 @@ fp=/home/s/sievers/kaper/gitreps/CMB_lensing_SBI/code/lensing_pipeline/filepaths
 #sim making
 #mpirun -n 20 python make_sims_if.py --filepath ${fp} --set 0 --qid ${qid} --coadd 
 #mpirun -n 20 python make_sims_if.py --filepath ${fp} --set 1 --qid ${qid} --coadd
+#mpirun -n 20 python make_sims_mf_rdn0_n1.py --filepath ${fp} --set 0 
+#mpirun -n 20 python make_sims_mf_rdn0_n1.py --filepath ${fp} --set 1
+#mpirun -n 20 python make_sims_mf_rdn0_n1.py --filepath ${fp} --set 2 
+#mpirun -n 20 python make_sims_mf_rdn0_n1.py --filepath ${fp} --set 3 
 
 #----
 #analysis

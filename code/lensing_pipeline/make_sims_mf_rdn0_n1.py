@@ -11,7 +11,6 @@ import healpy as hp
 parser = argparse.ArgumentParser()
 parser.add_argument('--filepath',type=str,default=None)
 parser.add_argument("--set", type=int,  default=0,help="Set used for the seed in cmb simulation, from 0 to 3")
-parser.add_argument("--nsims", "--nsims", type=int,  default=100,help="Number of sims.")
 parser.add_argument("--kvfilter", type=int,  default=90,help="vertical fourier strip width")
 parser.add_argument("--khfilter", type=int,  default=50,help="horizontal fourier strip width")
 print("starting")

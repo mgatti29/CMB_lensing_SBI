@@ -50,9 +50,9 @@ def coadd_mapnew(map_list,ivar_list,a):
     wcs=map_list[0].wcs
     map_list=np.array(map_list)
     ivar_list=np.array(ivar_list)
-    coadd_map= np.sum(map_list[:,a] * ivar_list, axis = 0)
+    coadd_map= np.sum(map_list[:,a] * ivar_list[:,a], axis = 0)
     #coadd_map/=((np.sum(ivar_list*mask, axis = 0)))
-    coadd_map/=((np.sum(ivar_list, axis = 0)))
+    coadd_map/=((np.sum(ivar_list[:,a], axis = 0)))
     print('ignore warning: some ivars are 0 but we are taking this into account ')
     #coadd_map/=((np.sum(ivar_list, axis = 0)))
     coadd_map[~np.isfinite(coadd_map)] = 0

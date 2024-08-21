@@ -156,8 +156,33 @@ def runit(i,input_i):
     z_bin_edges[0] = 1e-6
     comoving_edges =  cosmology.comoving_distance(z_bin_edges)
 
-    # proper ray tracing
     raytrace_object = Raytracing(overdensity_array[:], cosmology, comoving_edges[:overdensity_array.shape[0]+1], config['nside_intermediate'], NGP = False, volume_weighted = True)
+    
+    if Born:
+        kappa_lensing = np.copy(overdensity_array)*0.
+        for i in frogress.bar(np.arange(2,kappa_lensing.shape[0])):
+            kappa_lensing[i-2] = Bornraytrace.raytrace(cosmology.H0, cosmology.Om0,
+                             overdensity_array=overdensity_array[:(i),:].T,
+                             a_centre=1./(1.+raytrace_object.redshifts[:i]), 
+                             comoving_edges=comoving_edges[:(i+1)])
+
+    else:
+        raytrace_object.raytrace_it()
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    # proper ray tracing
+    
     
     
     # raytrace in 4 steps.
@@ -180,8 +205,8 @@ def runit(i,input_i):
             time.sleep(10)
         
     '''
-    os.system('rm {0}'.format(config['output']+'/runs{0}/'.format(folder)+'/run{1}/*_intermediate_*'.format(folder,mock_number)))
-    raytrace_object.raytrace_it()
+    #os.system('rm {0}'.format(config['output']+'/runs{0}/'.format(folder)+'/run{1}/*_intermediate_*'.format(folder,mock_number)))
+    
     # CMB LENSING MAP -----------------------------------------------
     # identify the redshift of the last slice
     z_max = 3.4
@@ -193,14 +218,20 @@ def runit(i,input_i):
 
 
     Cosmo_ = cosmo(H0=camb_h_*100., ombh2=camb_ob_*camb_h_**2, omch2=(camb_om_-camb_ob_)*camb_h_**2,As = 2e-9,ns=camb_ns_,mnu=camb_mv_,num_massive_neutrinos=3 )
-    Theory = theory( cosmo= Cosmo_,halofit_version='takahashi', sigma_8 = camb_s8_, chistar = raytrace_object.plane_distances[imax].value,w = camb_w_)
+    Theory = theory( cosmo= Cosmo_,halofit_version='mead', sigma_8 = camb_s8_, chistar = raytrace_object.plane_distances[imax].value,w = camb_w_)
     Theory.get_Wcmb()
     Theory.get_Wcmblog()
     Theory.limber(xtype = 'kklog',nonlinear=True) 
     cl_z_max =  Theory.clkk[0][0]
-
+    '''
+    This is the same as
+    powers = Theory.results.get_cmb_power_spectra(Theory.pars, CMB_unit=None, raw_cl=True)
+    ell_ = np.arange(len(powers['lens_potential'][:,0]))
+    powers['lens_potential'][:,0] * (ell_ * (ell_ + 1) / 2)**2
+    '''
+    # 
     Cosmo_ = cosmo(H0=camb_h_*100., ombh2=camb_ob_*camb_h_**2, omch2=(camb_om_-camb_ob_)*camb_h_**2,As = 2e-9,ns=camb_ns_,mnu=camb_mv_,num_massive_neutrinos=3 )
-    Theory = theory( cosmo= Cosmo_,halofit_version='takahashi', sigma_8 = camb_s8_, chistar = None,w = camb_w_)
+    Theory = theory( cosmo= Cosmo_,halofit_version='mead', sigma_8 = camb_s8_, chistar = None,w = camb_w_)
     Theory.get_Wcmb()
     Theory.get_Wcmblog()
     Theory.limber(xtype = 'kklog',nonlinear=True) 
@@ -210,26 +241,59 @@ def runit(i,input_i):
     DELTA_CL_CMB = cl_CMB_lensing-cl_z_max
     DELTA_CL_CMB = np.hstack([0,DELTA_CL_CMB])
     map_ = hp.sphtfunc.synfast(DELTA_CL_CMB,config['nside_intermediate'],pixwin=True)
-    cmb_lensing_map_orig  = copy.deepcopy(raytrace_object.convergence_raytrace[imax-1]) + map_
-    cmb_lensing_map = hp.ud_grade(cmb_lensing_map_orig, nside_out = config['nside'])
+    
+    if Born:
+        cmb_lensing_map  = copy.deepcopy(kappa_lensing[imax-1]) + map_
+    else:
+        cmb_lensing_map_orig  = copy.deepcopy(raytrace_object.convergence_raytrace[imax-1]) + map_
+        
+   # cmb_lensing_map = hp.ud_grade(cmb_lensing_map_orig, nside_out = config['nside'])
 
     output = dict()
     output['CMB_lensing_map_{0}'.format(config['nside_intermediate'])] = cmb_lensing_map_orig
-    output['CMB_lensing_map'] = cmb_lensing_map
-    output['lensing_map_35'] = raytrace_object.convergence_raytrace[imax-1]
+
+    '''
+    alms_  = hp.map2alm(cmb_lensing_map)
+    lmax = hp.Alm.getlmax(len(alms_))
+    ell = np.arange(lmax + 1)
+    pixwin = hp.pixwin(config['nside_intermediate'])
+    # Apply deconvolution to the alms
+    for l in range(lmax + 1):
+        factor = 1.0 / pixwin[l] if pixwin[l] != 0 else 0  # Avoid division by zero
+        alms_[hp.Alm.getidx(lmax, l, np.arange(min(l, lmax - l) + 1))] *= factor
+    '''
+    
+   # output['lensing_map_35'] = raytrace_object.convergence_raytrace[imax-1]
     output['camb cl'] = cl_CMB_lensing
     output['camb cl_35'] = cl_z_max
 
-    powers = Theory.results.get_cmb_power_spectra(Theory.pars, CMB_unit='muK')
+    powers = Theory.results.get_cmb_power_spectra(Theory.pars, CMB_unit=None, raw_cl=True)
     output['camb_powers'] = powers
+    output['Born'] = Born
     
-    path = config['output']+'/runs{0}/'.format(folder)+'/run{1}/CMB_lensing_map_nside{2}.npy'.format(folder,mock_number,config['nside'])
+    '''
+    Diagnostics
+    '''
+    cl_z35 = hp.anafast(raytrace_object.convergence_raytrace[imax-1])
+    cl_pix = hp.sphtfunc.pixwin(config['nside_intermediate'])
+    output['ratio_z3.5'] = (cl_z35[:3000])/((cl_z_max*cl_pix**2)[:3000])
+
+    cx = hp.anafast(cl_CMB_lensing)
+    output['ratio_cmb_theory'] = cx[:3000]/(cl_CMB_lensing*cl_pix**2)[:3000]
+    
+
+    path = config['output']+'/runs{0}/'.format(folder_)+'/run{1}/CMB_lensing_map_nside{2}_{3}.npy'.format(folder,mock_number,config['nside_intermediate'], Born_label)
     np.save(path,output)
     
 
 
 if __name__ == '__main__':
 
+    Born = True
+    if Born :
+        Born_label = 'Born_approx'
+    else:
+        Born_label = 'Raytracing'
     folders = ['C','E']#,'I','J','K','L','M','N','O','P','Q','R','S']
     folders = ['C','E','I','J','K','L','M','N','O','P','Q','R','S']
     folders = ['C','E','I','J','K','L','M','N','O','P','R']
@@ -250,8 +314,7 @@ if __name__ == '__main__':
     for folder_ in folders:
         config = dict()
         config['noise_rel'] = 0
-        config['nside_intermediate'] = 1024
-        config['nside'] = 512
+        config['nside_intermediate'] = 2048
         config['path_mocks'] = '/global/cfs/cdirs/des/dirac_sims/original_files/'
         #/global/cfs/cdirs/des/mgatti/Dirac
         config['output'] = '/global/cfs/cdirs/des/mgatti/Dirac_mocks/' #/global/cfs/cdirs/des/dirac_sims/derived_products/'
@@ -295,7 +358,7 @@ if __name__ == '__main__':
                 mock_number = '0{0}'.format(seed)
             elif (seed>=100):
                 mock_number = '{0}'.format(seed)
-            path = config['output']+'/runs{0}/'.format(folder_)+'/run{1}/CMB_lensing_map_nside{2}.npy'.format(folder_,mock_number,config['nside'])
+            path = config['output']+'/runs{0}/'.format(folder_)+'/run{1}/CMB_lensing_map_nside{2}_{3}.npy'.format(folder_,mock_number,config['nside_intermediate'], Born_label)
             if not os.path.exists(path):
                 runstodo.append([seed,folder_])
             else:

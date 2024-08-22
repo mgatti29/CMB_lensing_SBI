@@ -169,44 +169,8 @@ def runit(i,input_i):
     else:
         raytrace_object.raytrace_it()
 
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    # proper ray tracing
-    
-    
-    
-    # raytrace in 4 steps.
-    '''
-    final = len(raytrace_object.redshifts)-1 
-    chunks = 10
-    chunk_length = math.ceil(final/chunks)
-    for step in range(chunks):
-        path = config['output']+'/runs{0}/'.format(folder)+'/run{1}/CMB_lensing_map_nside{2}_intermediate_{3}.pkl'.format(folder,mock_number,config['nside'],step)
-        if os.path.exists(path):
-            with open(path, 'rb') as file:
-                raytrace_object = pickle.load(file)
-        else:
-            start = chunk_length*step
-            end = min(chunk_length*(step+1),final)
-            raytrace_object.raytrace_it(start = start, end = end)
-            #np.save(path,raytrace_object, allow_pickle=True, fix_imports=False)
-            with open(path, 'wb') as file:
-                pickle.dump(raytrace_object, file, protocol=4)
-            time.sleep(10)
-        
-    '''
-    #os.system('rm {0}'.format(config['output']+'/runs{0}/'.format(folder)+'/run{1}/*_intermediate_*'.format(folder,mock_number)))
-    
+
+
     # CMB LENSING MAP -----------------------------------------------
     # identify the redshift of the last slice
     z_max = 3.4
@@ -217,23 +181,34 @@ def runit(i,input_i):
 
 
 
-    Cosmo_ = cosmo(H0=camb_h_*100., ombh2=camb_ob_*camb_h_**2, omch2=(camb_om_-camb_ob_)*camb_h_**2,As = 2e-9,ns=camb_ns_,mnu=camb_mv_,num_massive_neutrinos=3 )
-    Theory = theory( cosmo= Cosmo_,halofit_version='mead', sigma_8 = camb_s8_, chistar = raytrace_object.plane_distances[imax].value,w = camb_w_)
+    Cosmo_ = cosmo(H0=camb_h_*100., ombh2=camb_ob_*camb_h_**2, omch2=(camb_om_-camb_ob_)*camb_h_**2,As = 2e-9,ns=camb_ns_,mnu=camb_mv_,num_massive_neutrinos=3 ,w = camb_w_)
+    Theory = theory( cosmo= Cosmo_,halofit_version='mead', sigma_8 = camb_s8_, chistar =None)
+    
+    
+    # CMB lensing map up to z(imax)
+    chi_cmb = Theory.results.conformal_time(0)- Theory.results.tau_maxvis
+    if Born:
+        kappa_cmb_lensing_imax = Bornraytrace.raytrace(cosmology.H0, cosmology.Om0,
+                         overdensity_array=overdensity_array[:(imax),:].T,
+                         a_centre=1./(1.+raytrace_object.redshifts[:(imax)]), 
+                         comoving_edges=comoving_edges[:(imax+1)],comoving_to_CMB = chi_cmb*u.Mpc)
+    else:
+        pass
+
+    
+
     Theory.get_Wcmb()
     Theory.get_Wcmblog()
-    Theory.limber(xtype = 'kklog',nonlinear=True) 
+    Theory.limber(xtype = 'kklog',nonlinear=True,zmax =raytrace_object.redshifts[imax]) 
     cl_z_max =  Theory.clkk[0][0]
+
     '''
-    This is the same as
+    The snippet below is the same as
     powers = Theory.results.get_cmb_power_spectra(Theory.pars, CMB_unit=None, raw_cl=True)
     ell_ = np.arange(len(powers['lens_potential'][:,0]))
     powers['lens_potential'][:,0] * (ell_ * (ell_ + 1) / 2)**2
     '''
     # 
-    Cosmo_ = cosmo(H0=camb_h_*100., ombh2=camb_ob_*camb_h_**2, omch2=(camb_om_-camb_ob_)*camb_h_**2,As = 2e-9,ns=camb_ns_,mnu=camb_mv_,num_massive_neutrinos=3 )
-    Theory = theory( cosmo= Cosmo_,halofit_version='mead', sigma_8 = camb_s8_, chistar = None,w = camb_w_)
-    Theory.get_Wcmb()
-    Theory.get_Wcmblog()
     Theory.limber(xtype = 'kklog',nonlinear=True) 
     cl_CMB_lensing =  Theory.clkk[0][0]
 
@@ -242,15 +217,12 @@ def runit(i,input_i):
     DELTA_CL_CMB = np.hstack([0,DELTA_CL_CMB])
     map_ = hp.sphtfunc.synfast(DELTA_CL_CMB,config['nside_intermediate'],pixwin=True)
     
-    if Born:
-        cmb_lensing_map  = copy.deepcopy(kappa_lensing[imax-1]) + map_
-    else:
-        cmb_lensing_map_orig  = copy.deepcopy(raytrace_object.convergence_raytrace[imax-1]) + map_
-        
-   # cmb_lensing_map = hp.ud_grade(cmb_lensing_map_orig, nside_out = config['nside'])
+    cmb_lensing_map  = copy.deepcopy(kappa_cmb_lensing_imax) + map_
 
+    
+    
     output = dict()
-    output['CMB_lensing_map_{0}'.format(config['nside_intermediate'])] = cmb_lensing_map_orig
+    output['CMB_lensing_map_{0}'.format(config['nside_intermediate'])] = cmb_lensing_map
 
     '''
     alms_  = hp.map2alm(cmb_lensing_map)
@@ -267,22 +239,130 @@ def runit(i,input_i):
     output['camb cl'] = cl_CMB_lensing
     output['camb cl_35'] = cl_z_max
 
+    
     powers = Theory.results.get_cmb_power_spectra(Theory.pars, CMB_unit=None, raw_cl=True)
     output['camb_powers'] = powers
+
+    # This is for the SBI pipeline ~ 
+    powers_muK = Theory.results.get_cmb_power_spectra(Theory.pars, CMB_unit='muK', raw_cl=True)
+    output['camb_powers_muK'] = powers_muK
     output['Born'] = Born
     
+    
+    
     '''
+    ###########################################
     Diagnostics
+    ###########################################
     '''
-    cl_z35 = hp.anafast(raytrace_object.convergence_raytrace[imax-1])
+    Diagnostics = dict()
+    cl_z35 = hp.anafast(kappa_cmb_lensing_imax)
     cl_pix = hp.sphtfunc.pixwin(config['nside_intermediate'])
-    output['ratio_z3.5'] = (cl_z35[:3000])/((cl_z_max*cl_pix**2)[:3000])
+    Diagnostics['ratio_z3.5'] = (cl_z35[:3000])/((cl_z_max[:3000]*cl_pix[:3000]**2))
 
-    cx = hp.anafast(cl_CMB_lensing)
-    output['ratio_cmb_theory'] = cx[:3000]/(cl_CMB_lensing*cl_pix**2)[:3000]
+    cx = hp.anafast(cmb_lensing_map)
+    Diagnostics['ratio_cmb_theory'] = cx[:3000]/(cl_CMB_lensing[:3000]*cl_pix[:3000]**2)
+
+    
+    # Let's add WL x 4 and CMBL x 4 -------------
+    
+    if 1 ==1:
+    #try:
+        # read n(z) ----------------------------
+        nz_file = '//global/cfs/cdirs//des/www/y3_chains/data_vectors/2pt_NG_final_2ptunblind_02_26_21_wnz_maglim_covupdate_6000HR.fits'     
+        mu = fits.open(nz_file)
+
+        redshift_distributions_sources = {'z':None,'bins':dict()}
+        redshift_distributions_sources['z'] = mu[6].data['Z_MID']
+        for ix in [1,2,3,4]:
+            redshift_distributions_sources['bins'][ix] = mu[6].data['BIN{0}'.format(ix)]
+            
+
+
+        n_bins = 4
+        # stack n(z)s in a format that our theory code will like (z,nz1,nz2,nz3,nz4)
+        nzs = []
+        nzs.append(mu[6].data['Z_MID'])
+        for ix in [1,2,3,4]:
+            nz =  mu[6].data['BIN{0}'.format(ix)]
+            nz /= np.trapz(nz,mu[6].data['Z_MID'])
+            # normalise and append
+            nzs.append(nz)
+        nzs = np.array(nzs).T
+        # initialise the lensing kernel for our redshift distributions
+        Theory.get_Wshear(nzs)
+
+        # compute cls ---------------------------
+        Theory.limber(xtype = 'gg',nonlinear=True) 
+        Theory.limber(xtype = 'gk',nonlinear=True) 
+
+
+        k_tomo = dict()
+        nz_kernel_sample_dict = dict()
+        cl_Born = dict()    
+        dz = (z_bin_edges[1:]-z_bin_edges[:-1])
+        
+
+
+        for tomo_bin in [1,2,3,4]:
+            k_tomo[tomo_bin] = np.zeros(hp.nside2npix(config['nside_intermediate']))
+            redshift_distributions_sources['bins'][tomo_bin][250:] = 0.
+            nz_sample = np.interp(raytrace_object.redshifts,redshift_distributions_sources['z'], redshift_distributions_sources['bins'][tomo_bin])
+            nz_sample = nz_sample/np.sum(nz_sample*(dz[:len(nz_sample)]))
+            nz_kernel_sample_dict[tomo_bin] = nz_sample*dz[:len(nz_sample)]
+            for i in frogress.bar(range(len(comoving_edges)-2)):
+                try:
+                    k_tomo[tomo_bin]  += kappa_lensing[i]*nz_kernel_sample_dict[tomo_bin][i+1]
+                except:
+                    pass
+        for tomo_bin in [1,2,3,4]:
+            cl_Born[tomo_bin] = hp.anafast(k_tomo[tomo_bin])
+            
+
+                
+        cl_Born_CMBl = dict()
+        for tomo_bin in [1,2,3,4]:
+            cl_Born_CMBl[tomo_bin] = hp.anafast(cmb_lensing_map,k_tomo[tomo_bin])
+
+
+        WL_dict = dict()
+        cl_pix = hp.sphtfunc.pixwin( config['nside_intermediate'])
+
+        for i in range(0, 4):
+            a = cl_Born[i+1][:2000]  # Adjusted to use the correct index based on your code
+            b = Theory.clgg[i, i][:2000] * cl_pix[:2000]**2
+            WL_dict[i] = a/b
+
+        CMLWL_dict = dict()
+        cl_pix = hp.sphtfunc.pixwin( config['nside_intermediate'])
+
+        for i in range(0, 4):
+            a = cl_Born_CMBl[i+1][:2000]  # Adjusted to use the correct index based on your code
+            b = Theory.clgk[i, 0][:2000] * cl_pix[:2000]**2
+            CMLWL_dict[i] = a/b    
+        
+        Diagnostics['WL_dict']  = WL_dict
+        Diagnostics['CMLWL_dict']  = CMLWL_dict
+   # except:
+   #     print ('failed Diagnostics ---')
+
+    
+    
+    
+    output['Diagnostics'] = Diagnostics   
+    
+    
+    
+    
+    '''
+    ###########################################
+    End Diagnostics
+    ###########################################
+    '''  
+    
     
 
-    path = config['output']+'/runs{0}/'.format(folder_)+'/run{1}/CMB_lensing_map_nside{2}_{3}.npy'.format(folder,mock_number,config['nside_intermediate'], Born_label)
+    path = config['output']+'/runs{0}/'.format(folder_)+'/run{1}/CMB_lensing_map_nside{2}_{3}_final.npy'.format(folder,mock_number,config['nside_intermediate'], Born_label)
     np.save(path,output)
     
 
@@ -294,9 +374,9 @@ if __name__ == '__main__':
         Born_label = 'Born_approx'
     else:
         Born_label = 'Raytracing'
-    folders = ['C','E']#,'I','J','K','L','M','N','O','P','Q','R','S']
+   # folders = ['C','E']#,'I','J','K','L','M','N','O','P','Q','R','S']
     folders = ['C','E','I','J','K','L','M','N','O','P','Q','R','S']
-    folders = ['C','E','I','J','K','L','M','N','O','P','R']
+   # folders = ['C','E','I','J','K','L','M','N','O','P','R']
     #folders = ['Q','S']
     #folders = ['C','E','I','J','K','L','M','N','R']
     #folders = ['O','P','Q','S']
@@ -306,7 +386,7 @@ if __name__ == '__main__':
    # folders = ['N','O','P','Q','R','S']
    # folders = ['K','L']
 #   
-    #folders = ['E']
+    folders = ['E']
    # folders = ['J','K','L','M','N','O','P','Q','R','S']
  
     runstodo=[]
@@ -358,7 +438,7 @@ if __name__ == '__main__':
                 mock_number = '0{0}'.format(seed)
             elif (seed>=100):
                 mock_number = '{0}'.format(seed)
-            path = config['output']+'/runs{0}/'.format(folder_)+'/run{1}/CMB_lensing_map_nside{2}_{3}.npy'.format(folder_,mock_number,config['nside_intermediate'], Born_label)
+            path = config['output']+'/runs{0}/'.format(folder_)+'/run{1}/CMB_lensing_map_nside{2}_{3}_final.npy'.format(folder_,mock_number,config['nside_intermediate'], Born_label)
             if not os.path.exists(path):
                 runstodo.append([seed,folder_])
             else:
@@ -367,7 +447,7 @@ if __name__ == '__main__':
 
     
     #runit(5,runstodo)
-    print (count,len(runstodo))
+    #print (count,len(runstodo))
     from mpi4py import MPI 
     while run_count<len(runstodo):
         comm = MPI.COMM_WORLD
@@ -383,4 +463,4 @@ if __name__ == '__main__':
         comm.Barrier() 
         
 #srun --nodes=4 --tasks-per-node=12   python make_cmb_lensing_Dirac.py 
-#srun --nodes=4 --tasks-per-node=8   python make_cmb_lensing_Dirac.py 
+#srun --nodes=4 --tasks-per-node=4   python make_cmb_lensing_Dirac.py 

@@ -22,7 +22,7 @@ def kappa_prefactor(H0, om0, length_unit='Mpc'):
     return 1.5 * om0 * bit_with_units * bit_with_units
 
 
-def raytrace_integration(kappa_prefactor, overdensity_array, a_centre, comoving_edges, mask=None, old_approach = False):
+def raytrace_integration(kappa_prefactor, overdensity_array, a_centre, comoving_edges, mask=None, old_approach = False, comoving_to_CMB = None):
     """
     This function evaluates the Born weak lensing integral
 
@@ -45,6 +45,10 @@ def raytrace_integration(kappa_prefactor, overdensity_array, a_centre, comoving_
     else:
         comoving_max = comoving_centre[-1]
     
+    if comoving_to_CMB:
+        comoving_max = comoving_to_CMB
+        
+    
     comoving_prefactors = dr_array * (comoving_max - comoving_centre) * comoving_centre / (comoving_max * a_centre)
     comoving_prefactors *= kappa_prefactor
 
@@ -55,7 +59,7 @@ def raytrace_integration(kappa_prefactor, overdensity_array, a_centre, comoving_
     return np.sum(comoving_prefactors * overdensity_array,axis=1).value
 
   
-def raytrace(H0, om0, overdensity_array, a_centre, comoving_edges, mask=None, Hubble_length_unit = 'Mpc', old_approach = False):
+def raytrace(H0, om0, overdensity_array, a_centre, comoving_edges, mask=None, Hubble_length_unit = 'Mpc', old_approach = False, comoving_to_CMB = None):
     """
     Evaluate weak lensing convergence map using Born approximation
 
@@ -71,7 +75,7 @@ def raytrace(H0, om0, overdensity_array, a_centre, comoving_edges, mask=None, Hu
 
     kappa_pref_evaluated = kappa_prefactor(H0, om0, length_unit = Hubble_length_unit)
 
-    kappa_raytraced = raytrace_integration(kappa_pref_evaluated, overdensity_array, a_centre, comoving_edges, mask, old_approach = old_approach)
+    kappa_raytraced = raytrace_integration(kappa_pref_evaluated, overdensity_array, a_centre, comoving_edges, mask, old_approach = old_approach, comoving_to_CMB = comoving_to_CMB)
 
     return kappa_raytraced
 

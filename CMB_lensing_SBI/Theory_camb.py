@@ -6,7 +6,7 @@ from tabulate import tabulate
 from camb import model, initialpower
 
 class cosmo(object):
-    def __init__(self,H0=67.5, ombh2=0.022, omch2=0.122, mnu=0.06, omk=0, tau=0.0, As=2e-9, ns=0.965, r=0, num_massive_neutrinos=0):
+    def __init__(self,H0=67.5, ombh2=0.022, omch2=0.122, mnu=0.06, omk=0, tau=0.0, As=2e-9, ns=0.965, r=0, num_massive_neutrinos=0, w = -1):
         self.H0    = H0
         self.h     = H0/100.
         self.ombh2 = ombh2
@@ -19,6 +19,7 @@ class cosmo(object):
         self.As    = As
         self.ns    = ns
         self.r     = r
+        self.w     = w
         self.num_massive_neutrinos =num_massive_neutrinos
 
 class theory(object):
@@ -38,9 +39,16 @@ class theory(object):
                 print("Using fast settings. Results my not be accurate")
                 AccuracyBoost=1; max_eta_k=7000; lens_potential_accuracy=1; kmax=5
             else:
-                AccuracyBoost=2; max_eta_k=50000; lens_potential_accuracy=4; kmax=500
+                AccuracyBoost=3; max_eta_k=50000; lens_potential_accuracy=4; kmax=500
+            '''
+            lens_potential_accuracy overwrites max_eta_k, it's 72k for lens_potential_accuracy =4.
+            Note that ACT ini file uses max_eta_k = 20k.
+            '''
+                
+
             self.pars = camb.CAMBparams()
             self.pars.set_cosmology(H0=cosmo.H0, ombh2=cosmo.ombh2, omch2=cosmo.omch2, mnu=cosmo.mnu, omk=cosmo.omk, tau=cosmo.tau, num_massive_neutrinos=cosmo.num_massive_neutrinos)
+            self.pars.set_dark_energy(w=cosmo.w)
             self.pars.InitPower.set_params(As=cosmo.As, ns=cosmo.ns, r=cosmo.r)
             self.pars.set_for_lmax(lmax=self.lmax,lens_potential_accuracy=lens_potential_accuracy, max_eta_k=max_eta_k)
             self.pars.set_accuracy(AccuracyBoost=AccuracyBoost,lSampleBoost=1, lAccuracyBoost=1)
@@ -302,7 +310,8 @@ class theory(object):
             print("nbins g1 = %d"%nbin1)
             print("nbins k1 = %d"%nbin2)  
             tmp  = np.zeros((self.lmax+1)) 
-            self.clgk = np.zeros((nbinG,1,self.lmax+1))  
+            nbinG1      = self.Wshear.shape[1]
+            self.clgk = np.zeros((nbinG1,1,self.lmax+1))  
             PK    = camb.get_matter_power_interpolator(self.pars,nonlinear=nonlinear,hubble_units=True, k_hunit=True, kmax=500, zmax=4.0,zmin=0.0,var1=transftype1,var2=transftype2)
             for n1 in range(0,nbin1):
                 for l in range(1,self.lmax+1):

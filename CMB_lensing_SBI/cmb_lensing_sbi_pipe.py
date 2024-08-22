@@ -5,7 +5,330 @@ import healpy as hp
 from pixell import enmap,lensing as plensing,curvedsky, utils, enplot
 import orphics
 from orphics import io,maps
+import pytempura
+from falafel import qe
 
+
+'''
+These are a number of routines I took from solenspipe or Karen's lensing utils.
+'''
+
+
+# https://github.com/simonsobs/so-lenspipe/blob/a949e865a93569cb7a1a05f525aeff7e65c7d7a4/solenspipe/solenspipe.py#L106
+def split_phi_to_cl(xy,uv,m=4,cross=False,ikalm=None):
+    phi_x=xy[0];phi01=xy[1];phi02=xy[2];phi03=xy[3];phi12=xy[4];phi13=xy[5];phi23=xy[6];phi_x0=xy[7];phi_x1=xy[8];phi_x2=xy[9];phi_x3=xy[10]
+    phi_xp=uv[0];phi01p=uv[1];phi02p=uv[2];phi03p=uv[3];phi12p=uv[4];phi13p=uv[5];phi23p=uv[6];phi_x0p=uv[7];phi_x1p=uv[8];phi_x2p=uv[9];phi_x3p=uv[10]
+    if cross is False:
+        tg1=m**4*curvedsky.alm2cl(phi_x,phi_xp)
+        tg2=-4*m**2*(curvedsky.alm2cl(phi_x0,phi_x0p)+curvedsky.alm2cl(phi_x1,phi_x1p)+curvedsky.alm2cl(phi_x2,phi_x2p)+curvedsky.alm2cl(phi_x3,phi_x3p))
+        tg3=4*(curvedsky.alm2cl(phi01,phi01p)+curvedsky.alm2cl(phi02,phi02p)+curvedsky.alm2cl(phi03,phi03p)+curvedsky.alm2cl(phi12,phi12p)+curvedsky.alm2cl(phi13,phi13p)+cs.alm2cl(phi23,phi23p))
+    else:
+        tg1=m**4*curvedsky.alm2cl(phi_x,ikalm)
+        tg2=-4*m**2*(curvedsky.alm2cl(phi_x0,ikalm)+curvedsky.alm2cl(phi_x1,ikalm)+curvedsky.alm2cl(phi_x2,ikalm)+curvedsky.alm2cl(phi_x3,ikalm))
+        tg3=4*(curvedsky.alm2cl(phi01,ikalm)+curvedsky.alm2cl(phi02,ikalm)+curvedsky.alm2cl(phi03,ikalm)+curvedsky.alm2cl(phi12,ikalm)+curvedsky.alm2cl(phi13,ikalm)+curvedsky.alm2cl(phi23,ikalm))
+
+    auto =(1/(m*(m-1)*(m-2)*(m-3)))*(tg1+tg2+tg3)
+    return auto
+
+#https://github.com/mgatti29/CMB_lensing_SBI/blob/lensing_pipe/code/lensing_pipeline/utils.py#L143
+def phi_to_cl(xy,uv,m=1,cross=False,ikalm=None):
+    if cross:
+        cl = curvedsky.alm2cl(xy[0],ikalm)
+    else:
+        cl = curvedsky.alm2cl(xy[0],uv[0])
+    return cl
+
+#https://github.com/simonsobs/so-lenspipe/blob/a949e865a93569cb7a1a05f525aeff7e65c7d7a4/solenspipe/solenspipe.py#L23
+def four_split_phi(Xdat_0,Xdat_1,Xdat_2,Xdat_3,Xdatp_0=None,Xdatp_1=None,Xdatp_2=None,Xdatp_3=None,q_func1=None):
+    """Return kappa_alms combinations required for the 4cross estimator in Eq. 38 of arXiv:2011.02475v1 .
+
+    Args:
+        Xdat_0 (array): [fTalm,fEalm,fBalm] list of filtered alms from split 0
+        Xdat_1 (array): [fTalm,fEalm,fBalm] list of filtered alms from split 1
+        Xdat_2 (array): [fTalm,fEalm,fBalm] list of filtered alms from split 2
+        Xdat_3 (array): [fTalm,fEalm,fBalm] list of filtered alms from split 3
+        q_func1 (function): function for quadratic estimator
+        Xdatp_0 (array): [fTalm,fEalm,fBalm] list of filtered alms from split 0 used for RDN0 for different sim data combination
+        Xdatp_1 (array): [fTalm,fEalm,fBalm] list of filtered alms from split 1 used for RDN0 for different sim data combination
+        Xdatp_2 (array): [fTalm,fEalm,fBalm] list of filtered alms from split 2 used for RDN0 for different sim data combination
+        Xdatp_3 (array): [fTalm,fEalm,fBalm] list of filtered alms from split 3 used for RDN0 for different sim data combination
+        qfunc2 ([type], optional): [description]. Defaults to None.
+
+    Returns:
+        array: Combination of reconstructed kappa alms
+    """
+    q_bh_1=q_func1
+    if Xdatp_0 is None:
+        print("none")
+        
+        phi_xy00 = plensing.phi_to_kappa(q_bh_1(Xdat_0,Xdat_0))
+        phi_xy11 = plensing.phi_to_kappa(q_bh_1(Xdat_1,Xdat_1))
+        phi_xy22 = plensing.phi_to_kappa(q_bh_1(Xdat_2,Xdat_2))
+        phi_xy33 = plensing.phi_to_kappa(q_bh_1(Xdat_3,Xdat_3))
+        phi_xy01 = 0.5*(plensing.phi_to_kappa(q_bh_1(Xdat_0,Xdat_1))+plensing.phi_to_kappa(q_bh_1(Xdat_1,Xdat_0)))
+        phi_xy02 = 0.5*(plensing.phi_to_kappa(q_bh_1(Xdat_0,Xdat_2))+plensing.phi_to_kappa(q_bh_1(Xdat_2,Xdat_0)))
+        phi_xy03 = 0.5*(plensing.phi_to_kappa(q_bh_1(Xdat_0,Xdat_3))+plensing.phi_to_kappa(q_bh_1(Xdat_3,Xdat_0)))
+        phi_xy10=phi_xy01
+        phi_xy12= 0.5*(plensing.phi_to_kappa(q_bh_1(Xdat_1,Xdat_2))+plensing.phi_to_kappa(q_bh_1(Xdat_2,Xdat_1)))
+        phi_xy13= 0.5*(plensing.phi_to_kappa(q_bh_1(Xdat_1,Xdat_3))+plensing.phi_to_kappa(q_bh_1(Xdat_3,Xdat_1)))
+        phi_xy20=phi_xy02
+        phi_xy21=phi_xy12
+        phi_xy23=0.5*(plensing.phi_to_kappa(q_bh_1(Xdat_2,Xdat_3))+plensing.phi_to_kappa(q_bh_1(Xdat_3,Xdat_2)))
+        phi_xy30=phi_xy03
+        phi_xy31=phi_xy13
+        phi_xy32=phi_xy23
+        phi_xy_hat=(phi_xy00+phi_xy11+phi_xy22+phi_xy33+phi_xy01+phi_xy02+phi_xy03+phi_xy10+phi_xy12+phi_xy13+phi_xy20+phi_xy21+phi_xy23+phi_xy30+phi_xy31+phi_xy32)/4**2
+        phi_xy_X=phi_xy_hat-(phi_xy00+phi_xy11+phi_xy22+phi_xy33)/4**2                        
+        phi_xy0=(phi_xy00+phi_xy01+phi_xy02+phi_xy03)/4
+        phi_xy1=(phi_xy10+phi_xy11+phi_xy12+phi_xy13)/4
+        phi_xy2=(phi_xy20+phi_xy21+phi_xy22+phi_xy23)/4
+        phi_xy3=(phi_xy30+phi_xy31+phi_xy32+phi_xy33)/4
+        phi_xy_x0=phi_xy0-phi_xy00/4
+        phi_xy_x1=phi_xy1-phi_xy11/4
+        phi_xy_x2=phi_xy2-phi_xy22/4
+        phi_xy_x3=phi_xy3-phi_xy33/4
+    
+    else:
+       
+        phi_xy00 = plensing.phi_to_kappa(q_bh_1(Xdat_0,Xdatp_0))
+        phi_xy11 = plensing.phi_to_kappa(q_bh_1(Xdat_1,Xdatp_1))
+        phi_xy22 = plensing.phi_to_kappa(q_bh_1(Xdat_2,Xdatp_2))
+        phi_xy33 = plensing.phi_to_kappa(q_bh_1(Xdat_3,Xdatp_3))
+        phi_xy01 = 0.5*(plensing.phi_to_kappa(q_bh_1(Xdat_0,Xdatp_1))+plensing.phi_to_kappa(q_bh_1(Xdat_1,Xdatp_0)))
+        phi_xy02 = 0.5*(plensing.phi_to_kappa(q_bh_1(Xdat_0,Xdatp_2))+plensing.phi_to_kappa(q_bh_1(Xdat_2,Xdatp_0)))
+        phi_xy03 = 0.5*(plensing.phi_to_kappa(q_bh_1(Xdat_0,Xdatp_3))+plensing.phi_to_kappa(q_bh_1(Xdat_3,Xdatp_0)))
+        phi_xy10=phi_xy01
+        phi_xy12= 0.5*(plensing.phi_to_kappa(q_bh_1(Xdat_1,Xdatp_2))+plensing.phi_to_kappa(q_bh_1(Xdat_2,Xdatp_1)))
+        phi_xy13= 0.5*(plensing.phi_to_kappa(q_bh_1(Xdat_1,Xdatp_3))+plensing.phi_to_kappa(q_bh_1(Xdat_3,Xdatp_1)))
+        phi_xy20=phi_xy02
+        phi_xy21=phi_xy12
+        phi_xy23=0.5*(plensing.phi_to_kappa(q_bh_1(Xdat_2,Xdatp_3))+plensing.phi_to_kappa(q_bh_1(Xdat_3,Xdatp_2)))
+        phi_xy30=phi_xy03
+        phi_xy31=phi_xy13
+        phi_xy32=phi_xy23
+        phi_xy_hat=(phi_xy00+phi_xy11+phi_xy22+phi_xy33+phi_xy01+phi_xy02+phi_xy03+phi_xy10+phi_xy12+phi_xy13+phi_xy20+phi_xy21+phi_xy23+phi_xy30+phi_xy31+phi_xy32)/4**2
+        phi_xy_X=phi_xy_hat-(phi_xy00+phi_xy11+phi_xy22+phi_xy33)/4**2                        
+        phi_xy0=(phi_xy00+phi_xy01+phi_xy02+phi_xy03)/4
+        phi_xy1=(phi_xy10+phi_xy11+phi_xy12+phi_xy13)/4
+        phi_xy2=(phi_xy20+phi_xy21+phi_xy22+phi_xy23)/4
+        phi_xy3=(phi_xy30+phi_xy31+phi_xy32+phi_xy33)/4
+        phi_xy_x0=phi_xy0-phi_xy00/4
+        phi_xy_x1=phi_xy1-phi_xy11/4
+        phi_xy_x2=phi_xy2-phi_xy22/4
+        phi_xy_x3=phi_xy3-phi_xy33/4
+
+    phi_xy=np.array([phi_xy_X,phi_xy01,phi_xy02,phi_xy03,phi_xy12,phi_xy13,phi_xy23,phi_xy_x0,phi_xy_x1,phi_xy_x2,phi_xy_x3])
+    
+
+    return phi_xy
+
+#https://github.com/simonsobs/so-lenspipe/blob/a949e865a93569cb7a1a05f525aeff7e65c7d7a4/solenspipe/solenspipe.py#L230
+def get_qfunc(px,ucls,mlmax,est1,Al1=None,est2=None,Al2=None,Al3=None,R12=None,profile=None):
+    """
+    Prepares a qfunc lambda function for an estimator est1. Optionally,
+    normalize it with Al1. Optionally, bias harden it (which
+    results in a normalized estimator) against est2 with
+    normalization Al2 and unnormalized cross-response R12.
+
+
+    Parameters
+    ----------
+
+    px : object
+        A falafal.qe.pixelization object that holds healpix or rectangular
+        pixel information and associated common functions
+    ucls : dict
+        A dictionary mapping TT,TE,EE,BB to spectra used in the response
+        of various estimators. Typically these are gradient-field spectra
+        or lensed field spectra.
+    mlmax : int
+        Maximum multipole for alm transforms
+    est1 : str
+        The name of a pre-defined falafel estimator. e.g. MV,MVPOL,TT,
+        EB,TE,EE,TB.
+    Al1 : ndarray
+        A (2,mlmax) shape numpy array containing the gradient-like (e.g. lensing
+        potential) and curl-like normalization.
+    est2 : str, optional
+        The name of a pre-defined falafel estimator to bias harden against
+    Al2 : ndarray, optional
+        A (mlmax,) shape numpy array containing the normalization of the 
+        estimator being hardened against.
+    Al3 : ndarray, optional
+        A (mlmax,) shape numpy array containing the normalization of the 
+        TT estimator used when calculating BH estimator.
+    R12 : ndarray, optional
+        An (mlmax,) or (1,mlmax) or (2,mlmax) shape numpy array containing 
+        the unnormalized cross-response of est1 and est2. If two components
+        are present, then the curl of est1 is also bias hardened using the
+        cross-response of est2 with curl specified through the second
+        component.
+    profile : (mlmax) array, default=None
+        An array to use as the profile for profile-hardening, when est2="SRC".
+        If not provided, will just do point-source hardening. 
+
+    Returns
+    -------
+    qfunc : function
+        Quadratic estimator lambda function
+    
+    """
+    est1 = est1.upper()
+    assert est1 in pytempura.est_list
+    if Al1 is not None:
+        assert Al1.ndim==2, "Both gradient and curl normalizations need to be present."
+    if est2 is not None:
+        bh = True
+        assert est2 in pytempura.est_list
+        assert Al1 is not None
+        assert Al2 is not None
+        if Al2.ndim==2:
+            assert Al2.shape[0]==1
+            Al2 = Al2[0]
+        else:
+            assert Al2.ndim==1
+        assert R12 is not None
+        if R12.ndim==1: 
+            R12 = R12[None]
+        else: 
+            assert R12.ndim==2
+    else:
+        bh = False
+
+    assert est1 in ['TT','TE','EE','EB','TB','MV','MVPOL','SHEAR'] # TODO: add other
+    if est1=='SHEAR':
+        qfunc1 = lambda X,Y: qe.qe_shear(px,mlmax,
+                            Talm=X[0],fTalm=Y[1])
+    else:
+        qfunc1 = lambda X,Y: qe.qe_all(px,ucls,mlmax,
+                                    fTalm=Y[0],fEalm=Y[1],fBalm=Y[2],
+                                    estimators=[est1],
+                                    xfTalm=X[0],xfEalm=X[1],xfBalm=X[2])[est1]
+
+    if bh:
+        assert est2 in ['SRC','MASK'] # TODO: add mask
+        if est2 == 'SRC':
+            qfunc2 = lambda X,Y: qe.qe_source(px,mlmax,Y[0],profile=profile,xfTalm=X[0])
+        elif est2 == 'mask':
+            qfunc2 = lambda X,Y: qe.qe_mask(px,ucls,mlmax,fTalm=Y[0],xfTalm=X[0])
+        # The bias-hardened estimator Eq 27 of arxiv:1209.0091
+        if R12.shape[0]==1:
+
+            if est1=='TT':
+                # Bias harden only gradient e.g. source hardening
+                def retfunc(X,Y):
+                    q1 = qfunc1(X,Y)
+                    q2 = qfunc2(X,Y)
+                    g = curvedsky.almxfl( \
+                                (curvedsky.almxfl(q1[0],Al1[0]) - \
+                                    curvedsky.almxfl(qfunc2(X,Y),Al1[0] * Al2 * R12[0])) , \
+                                1. / (1. - Al1[0] * Al2 * R12[0]**2.) \
+                    )
+                    c = curvedsky.almxfl(q1[1],Al1[1])
+                    return np.asarray((g,c))
+            else:
+                def retfunc(X,Y):
+                    print('test bh MV')
+                    qfuncTT= lambda X,Y: qe.qe_all(px,ucls,mlmax,
+                                        fTalm=Y[0],fEalm=Y[1],fBalm=Y[2],
+                                        estimators=['TT'],
+                                        xfTalm=X[0],xfEalm=X[1],xfBalm=X[2])['TT']
+                    q1=qfuncTT(X,Y)
+
+                    q2 = qfunc2(X,Y)
+
+                    qfuncmv=lambda X,Y: qe.qe_all(px,ucls,mlmax,
+                                        fTalm=Y[0],fEalm=Y[1],fBalm=Y[2],
+                                        estimators=['MV'],
+                                        xfTalm=X[0],xfEalm=X[1],xfBalm=X[2])['MV']
+                    
+                    qmv=qfuncmv(X,Y)
+                    g_bh_TT = curvedsky.almxfl( \
+                                (curvedsky.almxfl(q1[0],Al3[0]) - \
+                                    curvedsky.almxfl(qfunc2(X,Y),Al3[0] * Al2 * R12[0])) , \
+                                1. / (1. - Al3[0] * Al2 * R12[0]**2.) \
+                    )
+                    g= curvedsky.almxfl(qmv[0]-q1[0]+curvedsky.almxfl(g_bh_TT,1/Al3[0]),Al1[0])
+                    c = curvedsky.almxfl(qmv[1],Al1[1])
+
+
+                    return np.asarray((g,c))
+
+        elif R12.shape[0]==2:
+            # Bias harden both e.g. mask hardening
+            def retfunc(X,Y):
+                q1 = qfunc1(X,Y)
+                q2 = qfunc2(X,Y)
+                g = curvedsky.almxfl( \
+                               (curvedsky.almxfl(q1[0],Al1[0]) - \
+                                curvedsky.almxfl(qfunc2(X,Y),Al1[0] * Al2 * R12[0])) , \
+                               1. / (1. - Al1[0] * Al2 * R12[0]**2.) \
+                )
+                c = curvedsky.almxfl( \
+                               (curvedsky.almxfl(q1[1],Al1[1]) - \
+                                curvedsky.almxfl(qfunc2(X,Y),Al1[1] * Al2 * R12[1])) , \
+                               1. / (1. - Al1[1] * Al2 * R12[1]**2.) \
+                )
+                return np.asarray((g,c))
+
+        return retfunc
+                
+    else:
+        if Al1 is not None: 
+            # TODO: Improve this construct by building a multi-dimensional almxfl
+            def retfunc(X,Y):
+                recon = qfunc1(X,Y)
+                return np.asarray((curvedsky.almxfl(recon[0],Al1[0]),curvedsky.almxfl(recon[1],Al1[1])))
+            return retfunc
+        else: return qfunc1
+
+    
+#https://github.com/simonsobs/so-lenspipe/blob/a949e865a93569cb7a1a05f525aeff7e65c7d7a4/solenspipe/utility.py#L809
+def w_n(mask,n):
+    """wrapper for solenspipe's wfactor function"""
+    pmap = enmap.pixsizemap(mask.shape,mask.wcs)
+    return maps.wfactor(n,mask,sht=True,pmap=pmap)
+
+#https://github.com/mgatti29/CMB_lensing_SBI/blob/lensing_pipe/code/lensing_pipeline/utils.py#L103
+def smooth_pack(alms,mask,n):
+    cltt = smooth_cls(hp.alm2cl(alms[0])/w_n(mask,n))
+    clee=smooth_cls(hp.alm2cl(alms[1])/w_n(mask,n)) #this is signal+noise
+    clbb=smooth_cls(hp.alm2cl(alms[2])/w_n(mask,n))
+    clte=smooth_cls(hp.alm2cl(alms[0],alms[1])/w_n(mask,n))
+    return np.array([cltt,clee,clbb,clte])
+
+#https://github.com/simonsobs/so-lenspipe/blob/a949e865a93569cb7a1a05f525aeff7e65c7d7a4/solenspipe/utility.py#L655
+def smooth_cls(cl,points=300):
+    """bin and interpolate a cl to smooth it"""
+    bin_edges = np.linspace(2,len(cl),points).astype(int)
+    cents,cls=bandedcls(cl,bin_edges)
+    cls=maps.interp(cents,cls)(np.arange(len(cl)))
+    return cls
+
+
+#https://github.com/mgatti29/CMB_lensing_SBI/blob/lensing_pipe/code/lensing_pipeline/utils.py#L110
+def reshape_alm(fname, mask, lmax):
+    # Read spherical harmonic coefficients (alm) from the file 'fname'.
+    # The coefficients are stored in the first, second, and third HDU (Header/Data Units).
+    alm = hp.read_alm(fname, hdu=(1, 2, 3))
+    
+    # Convert the spherical harmonic coefficients (alm) into a pixel-space map (pmap).
+    # 'enmap.empty((3,)+mask.shape,mask.wcs)' creates an empty map with the same shape and WCS (World Coordinate System) as the mask.
+    # The resulting map is then multiplied by the mask to apply the mask to the pixel-space map.
+    pmap = curvedsky.alm2map(alm, enmap.empty((3,) + mask.shape, mask.wcs)) * mask
+    
+    # Convert the pixel-space map back into spherical harmonic coefficients (alm).
+    # 'lmax' specifies the maximum multipole order for the transformation.
+    oalms = curvedsky.map2alm(pmap, lmax=lmax)
+    
+    # Replace any non-finite values (e.g., NaN or infinity) in the output alms with zero.
+    oalms[~np.isfinite(oalms)] = 0
+    
+    # Ensure the output alms are of type 'complex128' (complex numbers with double precision).
+    oalms = oalms.astype(np.complex128)
+    
+    # Return the reshaped spherical harmonic coefficients (alm).
+    return oalms
 
 
 def kspace_coadd(map_alms,lbeams,noise,fkbeam=1):
@@ -43,7 +366,7 @@ def mask_kspace(shape,wcs, lxcut = None, lycut = None, lmin = None, lmax = None)
     return output
 
 
-
+#https://github.com/simonsobs/so-lenspipe/blob/a949e865a93569cb7a1a05f525aeff7e65c7d7a4/solenspipe/utility.py#L119
 def coadd_mapnew(map_list,ivar_list,a):
     """return coadded map from splits, the map in maplist contains I,Q,U 
     a=0,1,2 selects one of I Q U """
@@ -59,10 +382,12 @@ def coadd_mapnew(map_list,ivar_list,a):
     coadd_map = enmap.ndmap(coadd_map,wcs)
     return coadd_map    
 
+#https://github.com/simonsobs/so-lenspipe/blob/a949e865a93569cb7a1a05f525aeff7e65c7d7a4/solenspipe/utility.py#L105
 def rolling_average(x, N):
     cumsum = np.cumsum(np.insert(x, 0, 0)) 
     return (cumsum[N:] - cumsum[:-N]) / float(N)
 
+#https://github.com/simonsobs/so-lenspipe/blob/a949e865a93569cb7a1a05f525aeff7e65c7d7a4/solenspipe/utility.py#L233
 def get_datanoise(map_list,ivar_list, a, b, mask,beam,N=20,beam_deconvolve=True,lmax=6000):
     ### THIS IS A FUNCTION FROM SOLENSPIPE UTILITY WITH MINOR MODIFICATIONS
     """
@@ -134,6 +459,7 @@ def get_datanoise(map_list,ivar_list, a, b, mask,beam,N=20,beam_deconvolve=True,
 
     return power / w2
 
+#https://github.com/simonsobs/so-lenspipe/blob/a949e865a93569cb7a1a05f525aeff7e65c7d7a4/solenspipe/utility.py#L613
 def bandedcls(cl,_bin_edges):
     ls=np.arange(cl.size)
     binner = orphics.stats.bin1D(_bin_edges)
@@ -141,7 +467,7 @@ def bandedcls(cl,_bin_edges):
     return cents,bls
 
 
-
+#https://github.com/simonsobs/so-lenspipe/blob/a949e865a93569cb7a1a05f525aeff7e65c7d7a4/solenspipe/utility.py#L575
 def reconvolve_maps(maps,mask,beamdec,beamconv,lmax=6000):
     "deconvolve the beam of a map and return a map convolved with new beam"
     shape=maps.shape
@@ -152,6 +478,7 @@ def reconvolve_maps(maps,mask,beamdec,beamconv,lmax=6000):
     reconvolved_map=curvedsky.alm2map(convolved_alm,enmap.empty(shape,wcs))
     return reconvolved_map
 
+#https://github.com/simonsobs/so-lenspipe/blob/a949e865a93569cb7a1a05f525aeff7e65c7d7a4/solenspipe/utility.py#L566
 def deconvolve_maps(maps,mask,beam,lmax=6000):
     "deconvolve the beam of a map" 
     "function from solenspipe.utility (simgen) but slightly modified mask application"
@@ -214,6 +541,7 @@ def kspace_mask(imap, vk_mask=[-90,90], hk_mask=[-50,50], normalize="phys", deco
     imap[:,:] = np.real(enmap.ifft(ft, normalize=normalize))
     return imap
 
+#https://github.com/mgatti29/CMB_lensing_SBI/blob/lensing_pipe/code/lensing_pipeline/utils.py#L23
 def get_nalms(lmax, mmax = None):
     '''
     Calculate number of alms given (ell max, m max) [healpy format]
@@ -274,7 +602,7 @@ def rand_alm_(ps, ainfo=None, lmax=None, seed=None, dtype=np.complex128, m_major
     else:
         return alm
     
-    
+#https://github.com/mgatti29/CMB_lensing_SBI/blob/lensing_pipe/code/lensing_pipeline/utils.py#L18
 def gauss_beam(ell, fwhm):
     """
     Calculates a Gaussian beam in Fourier space.

@@ -4,7 +4,7 @@ from pixell import curvedsky
 import healpy as hp
 from pixell import enmap,lensing as plensing,curvedsky, utils, enplot
 import orphics
-from orphics import io,maps
+from orphics import io,maps,stats
 import pytempura
 from falafel import qe
 
@@ -462,7 +462,7 @@ def get_datanoise(map_list,ivar_list, a, b, mask,beam,N=20,beam_deconvolve=True,
 #https://github.com/simonsobs/so-lenspipe/blob/a949e865a93569cb7a1a05f525aeff7e65c7d7a4/solenspipe/utility.py#L613
 def bandedcls(cl,_bin_edges):
     ls=np.arange(cl.size)
-    binner = orphics.stats.bin1D(_bin_edges)
+    binner = stats.bin1D(_bin_edges)
     cents,bls = binner.bin(ls,cl)
     return cents,bls
 

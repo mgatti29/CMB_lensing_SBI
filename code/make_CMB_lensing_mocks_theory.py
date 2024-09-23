@@ -1,3 +1,5 @@
+SYSTEM = 'perlmutter'
+
 import subprocess
 import numpy as np
 import matplotlib.pyplot as plt
@@ -21,16 +23,25 @@ sys.path.append('/global/homes/m/mgatti')
 import mnms
 from mnms import noise_models as nm
 import os
-os.environ['SOFIND_SYSTEM'] = 'perlmutter'
+
+if SYSTEM == 'niagara':
+    os.environ['SOFIND_SYSTEM'] = 'niagara'
+else:
+    os.environ['SOFIND_SYSTEM'] = 'perlmutter'
+    
 import gc
+import copy
 from scipy.interpolate import interp1d
+from falafel import qe
+from astropy import units as u
+sys.path.append('/global/homes/m/mgatti/Mass_Mapping/CMB_lensing/extra/tempura/')
+import pytempura
+from astropy.coordinates import Angle
 
 
 
 
-
-
-def doit(sim_num,MULTIPLE_SPLITS,add_noise,output_folder_general,cosmology, stages = []):
+def doit(sim_num,MULTIPLE_SPLITS,add_noise,output_folder_general,cosmology, noisyB, SIMPLE_SIM, stages = []):
     
     if add_noise:
         noise = 'noisy'
@@ -42,105 +53,126 @@ def doit(sim_num,MULTIPLE_SPLITS,add_noise,output_folder_general,cosmology, stag
     else:
         spl = '1split'     
         
-    outdir = output_folder_general+'/{0}_{1}_{2}_{3}/'.format(cosmology,noise,sim_num,spl)
+    if not noisyB:
+        if not SIMPLE_SIM:
+            outdir = output_folder_general+'/{0}_{1}_{2}_{3}/'.format(cosmology,noise,sim_num,spl)
+        else:
+            outdir = output_folder_general+'/SIMPLE_{0}_{1}_{2}_{3}/'.format(cosmology,noise,sim_num,spl)
+    else:
+        if not SIMPLE_SIM:
+            outdir = output_folder_general+'/{0}_{1}_{2}_{3}_pair/'.format(cosmology,noise,sim_num,spl)
+            outdir_pair = output_folder_general+'/{0}_{1}_{2}_{3/'.format(cosmology,'noisy',sim_num,spl)
+        else:
+            outdir = output_folder_general+'/SIMPLE_{0}_{1}_{2}_{3}_pair/'.format(cosmology,noise,sim_num,spl) 
+            outdir_pair = output_folder_general+'/SIMPLE_{0}_{1}_{2}_{3}/'.format(cosmology,'noisy',sim_num,spl) 
+    
     if not os.path.exists(outdir):
         os.mkdir(outdir)
     print ('Working in ',outdir)
     
-    if not os.path.exists(outdir+'kcoadded_alms.fits'):
-
-        ##############################################################################################################
-        #
-        #
-        #                                             SOME CONFIGS 
-        #
-        #
-        ##############################################################################################################
 
 
-        beam_fwhm = 1.4
+    ##############################################################################################################
+    #
+    #
+    #                                             SOME CONFIGS 
+    #
+    #
+    ##############################################################################################################
 
 
-        # maps config --------------
-        nside= 4096 # this is needed for the kappa map and the kappa_alm to lens the CMB maps. nside 1024 is good up to l ~2k., nside 4096 should pobably be our default here.
-        arcmin_res_car = 1# this somehow determines also the resolution of the CAR maps. can't be too small. 
-        lmax = 2500 #6000 is the default for the ACT pipeline; but we can't really do it as class can't generate lensing cls a l>2500 (unlensed ones, yes, so when we will use N-bdy sims it will be OK)
+    beam_fwhm = 1.4
 
 
-        '''
+    # maps config --------------
+    nside= 4096 # this is needed for the kappa map and the kappa_alm to lens the CMB maps. nside 1024 is good up to l ~2k., nside 4096 should pobably be our default here.
+    arcmin_res_car = 1# this somehow determines also the resolution of the CAR maps. can't be too small. 
+    lmax = 2500 #6000 is the default for the ACT pipeline; but we can't really do it as class can't generate lensing cls a l>2500 (unlensed ones, yes, so when we will use N-bdy sims it will be OK)
+    mlmax = 4000 # this is used for lensing reconstruction
+    lmin = 600 #this is used for lensing reconstruction
 
-        Note: v4 ~ is the unreleased version.
 
-        The observations were made using three
-        dichroic detector modules, known as polarization arrays
-        (PA), with PA4 observing in the f150 (PA4 f150) and
-        f220 (PA4 f220) bands; PA5 in the f090 (PA5 f090) and
-        f150 (PA5 150) bands, and PA6 in the f090 (PA6 f090)
-        and f150 (PA6 f150) bands.
+    '''
 
-        the lensing map did not utilize the 220GHz data, only 90 and 150GHz, hence only pa4a (not pa4b),
-        while the other arrays will have both the pa{5-6}a and pa{5-6}b data 
-        https://arxiv.org/pdf/2304.05202
+    Note: v4 ~ is the unreleased version.
 
-        '''
+    The observations were made using three
+    dichroic detector modules, known as polarization arrays
+    (PA), with PA4 observing in the f150 (PA4 f150) and
+    f220 (PA4 f220) bands; PA5 in the f090 (PA5 f090) and
+    f150 (PA5 150) bands, and PA6 in the f090 (PA6 f090)
+    and f150 (PA6 f150) bands.
 
+    the lensing map did not utilize the 220GHz data, only 90 and 150GHz, hence only pa4a (not pa4b),
+    while the other arrays will have both the pa{5-6}a and pa{5-6}b data 
+    https://arxiv.org/pdf/2304.05202
+
+    '''
+
+    if SYSTEM == 'niagara':
+        path_files = '/project/r/rbond/jaejoonk/lensing_pipeline_data/'
+        global_folder = path_files
+    else:
         path_files = '/pscratch/sd/j/jaejoonk/lensing_pipeline_data/'
-        data_maps_fn_pattern = 'sim_cmb_night_%s_%s_%s_3pass_1way_set%s_map.fits'
-        m = 'night'
-        a_f = ['pa4_f150','pa5_f090','pa5_f150','pa6_f090','pa6_f150']
-        #qids = ['pa4av4', 'pa5av4', 'pa5bv4', 'pa6av4','pa6bv4'] 
-        qids = ['pa4a', 'pa5a', 'pa5b', 'pa6a','pa6b'] 
-       # qids = ['pa5b', 'pa6a','pa6b'] 
-
-
-
-        array_dict = {'pa4a': 'pa4_f150', 'pa5a': 'pa5_f090', 'pa5b': 'pa5_f150','pa6a': 'pa6_f090', 'pa6b': 'pa6_f150'}
-
-
-        gain_dict =  {
-                     "pa4_f150": 0.9708, "pa4_f220": 1.1119, "pa5_f090": 0.9625,
-                     "pa5_f150": 0.9961, "pa6_f090": 0.9660, "pa6_f150": 0.9764,
-                     }
-
-
-        # I assume they're the same as v4?
-        pol_eff = {
-                    'pa4a': 0.9584, 'pa5a': 0.9646, 'pa5b': 0.9488,
-                    'pa6a': 0.9789, 'pa6b': 0.9656
-                }
-
-
-
-
-
-
-
         global_folder = '/pscratch/sd/j/jaejoonk/lensing_pipeline_data/'
-        catalog_large = global_folder + 'catalog_large/union_catalog_large_20220316.csv'
-        catalog_regular = global_folder +'catalog_regular/union_catalog_regular_20220316.csv'
-        nemomodel_f090 = global_folder+ '/nemomodel_f090/nemomodel_dr6_all_clustersSNR5090down2.fits'
-        nemomodel_f150 = global_folder+ '/nemomodel_f150/nemomodel_dr6_all_clustersSNR5150down2.fits'
-        beams_path = global_folder+ '/beams_path/20230902/'
-        szbeam150 = global_folder+ '/szbeam150/s16_pa2_f150_nohwp_night_beam_tform_jitter.txt'
-        szbeam90 =  global_folder+ '/szbeam90/s16_pa3_f090_nohwp_night_beam_tform_jitter.txt'
-        calibration = global_folder+ 'calibration/tf_fit_dr6_%s_%s.dat'
-        kcoadded_alms=  'kcoadd_data_tszsub_%s_%s.fits'
-
-
-        if MULTIPLE_SPLITS:
-            nsplits = 8
-            data_run = False
-            model_subtract_tsz = False
-        else:
-            nsplits = 1
-            data_run = False
-            model_subtract_tsz = False
-
-
-        timing_container = dict()
+        
+        
+    data_maps_fn_pattern = 'sim_cmb_night_%s_%s_%s_3pass_1way_set%s_map.fits'
+    m = 'night'
+    a_f = ['pa4_f150','pa5_f090','pa5_f150','pa6_f090','pa6_f150']
+    #qids = ['pa4av4', 'pa5av4', 'pa5bv4', 'pa6av4','pa6bv4'] 
+    qids = ['pa4a', 'pa5a', 'pa5b', 'pa6a','pa6b'] 
+   # qids = ['pa5b', 'pa6a','pa6b'] 
 
 
 
+    array_dict = {'pa4a': 'pa4_f150', 'pa5a': 'pa5_f090', 'pa5b': 'pa5_f150','pa6a': 'pa6_f090', 'pa6b': 'pa6_f150'}
+
+
+    gain_dict =  {
+                 "pa4_f150": 0.9708, "pa4_f220": 1.1119, "pa5_f090": 0.9625,
+                 "pa5_f150": 0.9961, "pa6_f090": 0.9660, "pa6_f150": 0.9764,
+                 }
+
+
+    # I assume they're the same as v4?
+    pol_eff = {
+                'pa4a': 0.9584, 'pa5a': 0.9646, 'pa5b': 0.9488,
+                'pa6a': 0.9789, 'pa6b': 0.9656
+            }
+
+
+
+
+
+
+
+    
+    catalog_large = global_folder + 'catalog_large/union_catalog_large_20220316.csv'
+    catalog_regular = global_folder +'catalog_regular/union_catalog_regular_20220316.csv'
+    nemomodel_f090 = global_folder+ '/nemomodel_f090/nemomodel_dr6_all_clustersSNR5090down2.fits'
+    nemomodel_f150 = global_folder+ '/nemomodel_f150/nemomodel_dr6_all_clustersSNR5150down2.fits'
+    beams_path = global_folder+ '/beams_path/20230902/'
+    szbeam150 = global_folder+ '/szbeam150/s16_pa2_f150_nohwp_night_beam_tform_jitter.txt'
+    szbeam90 =  global_folder+ '/szbeam90/s16_pa3_f090_nohwp_night_beam_tform_jitter.txt'
+    calibration = global_folder+ 'calibration/tf_fit_dr6_%s_%s.dat'
+    kcoadded_alms=  'kcoadd_data_tszsub_%s_%s.fits'
+
+
+    if MULTIPLE_SPLITS:
+        nsplits = 8
+        data_run = False
+        model_subtract_tsz = False
+    else:
+        nsplits = 1
+        data_run = False
+        model_subtract_tsz = False
+
+
+    timing_container = dict()
+
+
+    if not os.path.exists(outdir+'kcoadded_alms'):
 
         ##############################################################################################################
         #
@@ -194,11 +226,9 @@ def doit(sim_num,MULTIPLE_SPLITS,add_noise,output_folder_general,cosmology, stag
             print ('')
             done_ = True
             count = 0
+            
+            if 1==1:
 
-            while done_:
-                count +=1
-                print ('Attempt #',count)
-                try:
                     if not os.path.exists(outdir+'/lensed_and_beams_alms.npy'):
                         st = timeit.default_timer()
 
@@ -211,22 +241,13 @@ def doit(sim_num,MULTIPLE_SPLITS,add_noise,output_folder_general,cosmology, stag
                         alms_ = cs.rand_alm(ps, ainfo=None, lmax=lmax, seed=None, dtype=np.complex128, m_major=True, return_ainfo=False)
 
                         # Convert alms to Healpix maps
-                        T_map = hp.alm2map(alms_[0], nside=nside)
-                        E_map = hp.alm2map(alms_[1], nside=nside)
-                        B_map = hp.alm2map(alms_[2], nside=nside)
+                        #T_map = hp.alm2map(alms_[0], nside=nside)
+                        #E_map = hp.alm2map(alms_[1], nside=nside)
+                        #B_map = hp.alm2map(alms_[2], nside=nside)
 
 
                         np.save(outdir+'/unlensed_alms',alms_)
                         print ('unlensed alms generated')
-
-                        # Compute the power spectra of the maps
-                        T_cl = hp.anafast(T_map)
-                        E_cl = hp.anafast(E_map)
-                        B_cl = hp.anafast(B_map)
-
-                        # Assuming T_cl, E_cl, B_cl, unlensed_cls, and lmax are defined
-                        ell = np.arange(len(T_cl))
-
 
                         ############################################################################################################
 
@@ -237,16 +258,18 @@ def doit(sim_num,MULTIPLE_SPLITS,add_noise,output_folder_general,cosmology, stag
                         # Make a noiseless kappa map
                         ell_ = np.arange(len(lensed_cls['pp']))  # Define ell array for the power spectrum
                         kappa_cmb = hp.synfast((lensed_cls['pp'] * (ell_ * (ell_ + 1) / 2)**2), nside=nside, lmax=lmax)  # Generate kappa map using the lensing potential power spectrum
+                        print ('kappa_cmb alms generated')
 
 
 
                         # Compute alms from the kappa map
 
-
-                        kappa_cmb_alm = hp.map2alm(kappa_cmb,lmax=lmax)  # Convert kappa map to spherical harmonics coefficients (alms)
-
-                        np.save(outdir+'/kappa_cmb_alm',kappa_cmb_alm)
-                        print ('kappa map generated')
+                        if noisyB:
+                            kappa_cmb_alm = np.load(outdir_pair+'/kappa_cmb_alms.npy',allow_pickle=True)
+                        else:
+                            kappa_cmb_alm = hp.map2alm(kappa_cmb,lmax=lmax)  # Convert kappa map to spherical harmonics coefficients (alms)
+                            np.save(outdir+'/kappa_cmb_alms',kappa_cmb_alm)
+                            print ('kappa map generated')
 
 
                         ell, emm = hp.Alm.getlm(lmax=lmax)  # Get ell and m values for the alms
@@ -255,7 +278,10 @@ def doit(sim_num,MULTIPLE_SPLITS,add_noise,output_folder_general,cosmology, stag
                         phi_cmb_alm = kappa_cmb_alm / (ell * (ell + 1) / 2)  # Calculate the lensing potential alms
                         phi_cmb_alm[ell==0] = 1e-30
                         # Define the shape and WCS (World Coordinate System) for the map
-                        shape, wcs = enmap.fullsky_geometry(res=np.deg2rad(arcmin_res_car/60.), proj="car")  # Set map resolution to 1 arcminute
+                       # shape, wcs = enmap.fullsky_geometry(res=np.deg2rad(arcmin_res_car/60.), proj="car")  # Set map resolution to 1 arcminute
+                        from astropy.coordinates import Angle
+                        dec_cut = Angle(np.asarray((-89, 89)), unit=u.degree).rad
+                        shape, wcs = enmap.band_geometry(dec_cut,res=np.deg2rad(arcmin_res_car/60.),proj='car')
 
                         # Generate lensed T, E, and B maps from the alms and lensing potential
                         maps_ = pixell.lensing.lens_map_curved((3, shape[0], shape[1]), wcs, phi_cmb_alm, alms_, phi_ainfo=None, maplmax=None, dtype=np.float64, spin=[0, 2], output="l", geodesic=True, verbose=False, delta_theta=None)
@@ -276,16 +302,16 @@ def doit(sim_num,MULTIPLE_SPLITS,add_noise,output_folder_general,cosmology, stag
                         np.save(outdir+'/lensed_and_beams_alms',alm_TEB)
 
                         # Compute the power spectra from the beam-applied alms
-                        cl_T_lensed_hp = hp.alm2cl(alm_TEB[0])
-                        cl_E_lensed_hp = hp.alm2cl(alm_TEB[1])
-                        cl_B_lensed_hp = hp.alm2cl(alm_TEB[2])
-
+                        #cl_T_lensed_hp = hp.alm2cl(alm_TEB[0])
+                        #cl_E_lensed_hp = hp.alm2cl(alm_TEB[1])
+                        #cl_B_lensed_hp = hp.alm2cl(alm_TEB[2])
+#
                         # Convert the beam-applied alms back to maps
                         #map_T_lensed_hp, map_E_lensed_hp, map_B_lensed_hp = hp.alm2map(alm_TEB, nside=nside, pol=False)
 
                         # Calculate the beam function for the given FWHM
-                        tht_fwhm = np.deg2rad(beam_fwhm / 60.)
-                        f_beam = np.exp(-(tht_fwhm**2) * (np.arange(lmax)**2) / (16 * np.log(2.)))
+                        #tht_fwhm = np.deg2rad(beam_fwhm / 60.)
+                        #f_beam = np.exp(-(tht_fwhm**2) * (np.arange(lmax)**2) / (16 * np.log(2.)))
 
 
 
@@ -295,9 +321,9 @@ def doit(sim_num,MULTIPLE_SPLITS,add_noise,output_folder_general,cosmology, stag
                         end = timeit.default_timer()
 
 
-                        del T_map
-                        del E_map
-                        del B_map
+                        #del T_map
+                        #del E_map
+                        #del B_map
                         del alms_
                         del kappa_cmb
                         del kappa_cmb_alm
@@ -310,9 +336,6 @@ def doit(sim_num,MULTIPLE_SPLITS,add_noise,output_folder_general,cosmology, stag
                         print ('loading alms from disk')
                         alm_TEB = np.load(outdir+'/lensed_and_beams_alms.npy',allow_pickle=True)#.item()
                         done_ = False
-
-                except:
-                    print ('failed, redoing it')
 
 
 
@@ -338,10 +361,18 @@ def doit(sim_num,MULTIPLE_SPLITS,add_noise,output_folder_general,cosmology, stag
             mask = enmap.read_map(mask_path)
 
 
+            alm_TEB = np.load(outdir+'/lensed_and_beams_alms.npy',allow_pickle=True)#.item()
+
+            if SIMPLE_SIM:
+                dec_cut = Angle(np.asarray((-89, 89)), unit=u.degree).rad
+                shape, wcs = enmap.band_geometry(dec_cut,res=np.deg2rad(arcmin_res_car/60.),proj='car')
+
+                full_shape = copy.deepcopy(shape)
+                full_wcs = copy.deepcopy(wcs)
+            else:    
+                full_shape, full_wcs = mask.shape, mask.wcs
 
 
-            # Create an empty map to fill with noise
-            full_shape, full_wcs = mask.shape, mask.wcs
             imap = enmap.empty((3,) + full_shape, full_wcs, dtype=np.float32)
 
             # Convert the alms to a map, convolved with the beam
@@ -351,10 +382,11 @@ def doit(sim_num,MULTIPLE_SPLITS,add_noise,output_folder_general,cosmology, stag
             gc.collect()
 
             # Apply the mask to the map (set regions with mask < 0.25 to 0)
-            sigmap_conv[:, mask < 0.25] = 0
+            if not SIMPLE_SIM:
+                sigmap_conv[:, mask < 0.25] = 0
 
-            # Handle NaN values in the map (set them to 0)
-            sigmap_conv[np.isnan(sigmap_conv)] = 0
+                # Handle NaN values in the map (set them to 0)
+                sigmap_conv[np.isnan(sigmap_conv)] = 0
 
 
 
@@ -434,7 +466,11 @@ def doit(sim_num,MULTIPLE_SPLITS,add_noise,output_folder_general,cosmology, stag
                         print ('--- channel ',af)
                         if not os.path.exists(f"{outdir}sim_cmb_{m}_{af}_{sim_num}_3pass_1way_set{split}_map_srcfree.fits"):
 
-                            froot = "/global/cfs/cdirs/cmb/data/act_dr6/dr6.01/maps/" #'/home/s/sievers/kaper/scratch/maps/dr6v3_20211031/'
+                            if SYSTEM =='niagara':
+                                froot = "/home/r/rbond/jaejoonk/project/lensing_pipeline_data/dr6.01/maps/" 
+                            else:
+                                froot = "/global/cfs/cdirs/cmb/data/act_dr6/dr6.01/maps/" #'/home/s/sievers/kaper/scratch/maps/dr6v3_20211031/'
+                                
                             fname = "{0}/act_dr6.01_wide_{1}_night_8way_set{2}_ivar.fits".format(froot,af,split) #f"{froot}cmb_{m}_{a}_{f}_8way_coadd_ivar.fits"
                             ivar = enmap.read_map(fname)
 
@@ -483,30 +519,48 @@ def doit(sim_num,MULTIPLE_SPLITS,add_noise,output_folder_general,cosmology, stag
                     for i,af in enumerate(a_f):
                         print ('--- channel ',af)
                         if not os.path.exists(f"{outdir}sim_cmb_{m}_{af}_{sim_num}_3pass_1way_set{split}_map_srcfree.fits"):
-                            froot = "/pscratch/sd/j/jaejoonk/lensing_pipeline_data/ivar/" #'/home/s/sievers/kaper/scratch/maps/dr6v3_20211031/'
-                            fname = "{0}/cmb_night_{1}_3pass_4way_coadd_ivar.fits".format(froot,af)
 
-                            ivar = enmap.read_map(fname)#/0.000001
+                            if not SIMPLE_SIM:
+                                froot = "/pscratch/sd/j/jaejoonk/lensing_pipeline_data/ivar/" #'/home/s/sievers/kaper/scratch/maps/dr6v3_20211031/'
+                                fname = "{0}/cmb_night_{1}_3pass_4way_coadd_ivar.fits".format(froot,af)
+                                ivar = enmap.read_map(fname)#/0.000001
+                                
+                                #the products are the same, but in truth they are different: 
+                                #the ivar for E and B are 0.5 * ivar for T. 
+                                #the product is ivar for T
+                                ivar_stack = []
+                                ivar_stack.append(ivar)
+                                ivar_stack.append(0.5*ivar)
+                                ivar_stack.append(0.5*ivar)
+                                ivar_stack = enmap.enmap(np.stack(ivar_stack), ivar.wcs)
+                                seed = int(i)+5
+                                wn_map = white_noise((3,)+full_shape,full_wcs,seed = seed,div=ivar)
+                            
+
+                            else:
+                                
+                                
+                                noise_uk = 10.0 # matching Matt's setup ===
+                                mean_ivar = 1/noise_uk**2
+                                ivar = mean_ivar*enmap.ones(full_shape,full_wcs)
+                                ivar_stack = []
+                                ivar_stack.append(ivar)
+                                ivar_stack.append(0.5*ivar)
+                                ivar_stack.append(0.5*ivar)
+
+                                
+                                wn_map = orphics.maps.white_noise((3,)+full_shape,full_wcs,noise_uk)
+                                wn_map[1:] *= np.sqrt(2.)
 
 
-                            #the products are the same, but in truth they are different: 
-                            #the ivar for E and B are 0.5 * ivar for T. 
-                            #the product is ivar for T
-                            ivar_stack = []
-                            ivar_stack.append(ivar)
-                            ivar_stack.append(0.5*ivar)
-                            ivar_stack.append(0.5*ivar)
-                            ivar_stack = enmap.enmap(np.stack(ivar_stack), ivar.wcs)
-
-
-                            seed = int(i)+5
-                            wn_map = white_noise((3,)+full_shape,full_wcs,seed = seed,div=ivar)
                             if add_noise:
                                 totmap = (sigmap_conv+wn_map)
                             else:
                                 totmap = copy.deepcopy(sigmap_conv)
-                            totmap[:,mask<0.25] = 0 
-                            totmap[np.isnan(totmap)] = 0
+                                
+                            if not SIMPLE_SIM:
+                                totmap[:,mask<0.25] = 0 
+                                totmap[np.isnan(totmap)] = 0
                            # totmap_dict[af] = totmap
 
                             #'''
@@ -535,7 +589,7 @@ def doit(sim_num,MULTIPLE_SPLITS,add_noise,output_folder_general,cosmology, stag
             print ('')
             st = timeit.default_timer()
 
-            calibrated = True
+            calibrated = False
 
             for qid in qids:
                 print (qid)
@@ -576,7 +630,7 @@ def doit(sim_num,MULTIPLE_SPLITS,add_noise,output_folder_general,cosmology, stag
 
                     del stack
                     gc.collect()
-                    smap_downgraded = enmap.downgrade(smap, 2, op = np.sum)
+                    smap_downgraded = enmap.downgrade(smap, 2)
                     enmap.write_map(outdir+'/map_downgraded_srcfree_{0}_{1}_{2}'.format(array,freq,sim_num), smap_downgraded)
 
                     del smap_downgraded
@@ -598,60 +652,72 @@ def doit(sim_num,MULTIPLE_SPLITS,add_noise,output_folder_general,cosmology, stag
         #
         ##############################################################################################################
         if 'inpaint' in stages:
-            print ('----- INPAINT  ------')
-            print ('')
+            
+            if not SIMPLE_SIM:
+                print ('----- INPAINT  ------')
+                print ('')
 
-            st = timeit.default_timer()
+                st = timeit.default_timer()
 
-            mask_path = path_files + "/mask/act_mask_fejer1_20220316_GAL070_rms_70.00_downgrade_3dg.fits"
-            mask = enmap.read_map(mask_path)
-            shape, wcs = mask.shape, mask.wcs
+                mask_path = path_files + "/mask/act_mask_fejer1_20220316_GAL070_rms_70.00_downgrade_3dg.fits"
+                mask = enmap.read_map(mask_path)
+                shape, wcs = mask.shape, mask.wcs
 
-            lras,ldecs = np.loadtxt(catalog_large,unpack=True,delimiter=',')
-            rras,rdecs = np.loadtxt(catalog_regular,unpack=True,delimiter=',')
-            lcoords = np.asarray((ldecs,lras))
-            rcoords = np.asarray((rdecs,rras))
-            lrad = 10.0
-            rrad = 6.0
-            mask1 = maps.mask_srcs(shape,wcs,lcoords,lrad)
-            mask2 = maps.mask_srcs(shape,wcs,rcoords,rrad)
+                lras,ldecs = np.loadtxt(catalog_large,unpack=True,delimiter=',')
+                rras,rdecs = np.loadtxt(catalog_regular,unpack=True,delimiter=',')
+                lcoords = np.asarray((ldecs,lras))
+                rcoords = np.asarray((rdecs,rras))
+                lrad = 10.0
+                rrad = 6.0
+                mask1 = maps.mask_srcs(shape,wcs,lcoords,lrad)
+                mask2 = maps.mask_srcs(shape,wcs,rcoords,rrad)
 
-            jmask = mask1 & mask2
-            jmask = ~jmask
-
-
+                jmask = mask1 & mask2
+                jmask = ~jmask
 
 
-            for qid in qids:
-                print (qid)
-                # get frequencies --------
-                array_freq = array_dict[qid]
-                array = array_freq[:3]
-                freq = array_freq[4:]
-                if not os.path.exists(outdir+'/map_downgraded_srcfree_inpainted_{0}_{1}_{2}'.format(array,freq,sim_num)):
-                    
 
-                    # do it for the stacked maps ------------------------------------------------
-                    ivar_map = enmap.read_map(outdir+'/map_downgraded_ivar_{0}_{1}_{2}'.format(array,freq,sim_num))
-                    sig_map = enmap.read_map(outdir+'/map_downgraded_srcfree_{0}_{1}_{2}'.format(array,freq,sim_num))
-                    sig_map[...,mask<0.25]=0.0 ##intial maps had been masked (before downgrading) -- maybe delete here --- do we have to mask with new inpainting??
-                    ivar_map[...,mask<0.25]=0.0
-                    ip_map = gapfill_edge_conv_flat(sig_map, jmask,ivar=ivar_map) #make sure everything is getting inpainted
-                    ip_map[...,mask<0.25]=0.0
-                    enmap.write_map(outdir+'/map_downgraded_srcfree_inpainted_{0}_{1}_{2}'.format(array,freq,sim_num),ip_map)
-                    del ip_map
-                    del ivar_map
-                    del sig_map
-                    gc.collect()
 
-            del jmask
-            del mask1
-            del mask2
-            gc.collect()
+                for qid in qids:
+                    print (qid)
+                    # get frequencies --------
+                    array_freq = array_dict[qid]
+                    array = array_freq[:3]
+                    freq = array_freq[4:]
+                    if not os.path.exists(outdir+'/map_downgraded_srcfree_inpainted_{0}_{1}_{2}'.format(array,freq,sim_num)):
 
-            end = timeit.default_timer()
-            timing_container['inpaint'] = end - st
 
+                        # do it for the stacked maps ------------------------------------------------
+                        ivar_map = enmap.read_map(outdir+'/map_downgraded_ivar_{0}_{1}_{2}'.format(array,freq,sim_num))
+                        sig_map = enmap.read_map(outdir+'/map_downgraded_srcfree_{0}_{1}_{2}'.format(array,freq,sim_num))
+                        sig_map[...,mask<0.25]=0.0 ##intial maps had been masked (before downgrading) -- maybe delete here --- do we have to mask with new inpainting??
+                        ivar_map[...,mask<0.25]=0.0
+                        ip_map = gapfill_edge_conv_flat(sig_map, jmask,ivar=ivar_map) #make sure everything is getting inpainted
+                        ip_map[...,mask<0.25]=0.0
+                        enmap.write_map(outdir+'/map_downgraded_srcfree_inpainted_{0}_{1}_{2}'.format(array,freq,sim_num),ip_map)
+                        del ip_map
+                        del ivar_map
+                        del sig_map
+                        gc.collect()
+
+                del jmask
+                del mask1
+                del mask2
+                gc.collect()
+
+                end = timeit.default_timer()
+                timing_container['inpaint'] = end - st
+            else:
+                for qid in qids:
+                    print (qid)
+                    # get frequencies --------
+                    array_freq = array_dict[qid]
+                    array = array_freq[:3]
+                    freq = array_freq[4:]
+                    if not os.path.exists(outdir+'/map_downgraded_srcfree_inpainted_{0}_{1}_{2}'.format(array,freq,sim_num)):
+                        sig_map = enmap.read_map(outdir+'/map_downgraded_srcfree_{0}_{1}_{2}'.format(array,freq,sim_num))
+                        enmap.write_map(outdir+'/map_downgraded_srcfree_inpainted_{0}_{1}_{2}'.format(array,freq,sim_num),sig_map)
+            
 
         ##############################################################################################################
         #
@@ -705,124 +771,138 @@ def doit(sim_num,MULTIPLE_SPLITS,add_noise,output_folder_general,cosmology, stag
                 map_splits = enmap.read_map(outdir+'/map_downgraded_srcfree_inpainted_{0}_{1}_{2}'.format(array,freq,sim_num))
                 ivar_splits = enmap.read_map(outdir+'/map_downgraded_ivar_{0}_{1}_{2}'.format(array,freq,sim_num))
 
+                if not SIMPLE_SIM:
 
+                    # get SZ BEAM --------------------------------------------------
+                    this_beam = szbeam150 if freq == "f150" else szbeam90
+                    ls, bells = np.loadtxt(this_beam, unpack=True, usecols=[0, 1])
+                    bells = bells / bells[0]
+                    sz_beam =  interp1d(ls, bells, bounds_error=False, fill_value=0)
 
-                # get SZ BEAM --------------------------------------------------
-                this_beam = szbeam150 if freq == "f150" else szbeam90
-                ls, bells = np.loadtxt(this_beam, unpack=True, usecols=[0, 1])
-                bells = bells / bells[0]
-                sz_beam =  interp1d(ls, bells, bounds_error=False, fill_value=0)
+                    # subtract the foreground map ----------------------------------
+                    if model_subtract_tsz:
+                        for split in range(nsplits):
 
-                # subtract the foreground map ----------------------------------
-                if model_subtract_tsz:
-                    for split in range(nsplits):
-
-                        fn = f"{beams_path}set{split}_{array}_{freq}_night_beam_tform_jitter_cmb.txt"
-                        ls, bells = np.loadtxt(fn, unpack=True, usecols=[0, 1])
-                        bells = bells / bells[0]
-                        beam_q = interp1d(ls, bells, bounds_error=False, fill_value=0)
-
-                        foreground = reconvolve_maps(sz_nemo[freq],mask,sz_beam,beam_q)
-                        for j in range(len(map_splits)):
-                            map_splits[j][split] = map_splits[j][split] - foreground #only subtract foreground from T map
-
-
-                all_maps.append(map_splits)
-                all_ivars.append(ivar_splits)
-
-
-                dec_maps = [] #deconvolved beam, pixell window and kspace filter
-                dec_ivars = [] #assoc ivars of decon maps (ivars are not deconvolved)
-
-
-                # deconvolve beam ----------------------------------------------
-                # Pixel window deconvolution, 5.4. [https://arxiv.org/pdf/2304.05202]
-                for sp in frogress.bar(range(nsplits)):
-                    if not os.path.exists(outdir+'dmap_{0}_{1}'.format(sp,qid)):
-                        if data_run:
-                            fn = f"{beams_path}set{sp}_{array}_{freq}_night_beam_tform_jitter_cmb.txt"
+                            fn = f"{beams_path}set{split}_{array}_{freq}_night_beam_tform_jitter_cmb.txt"
                             ls, bells = np.loadtxt(fn, unpack=True, usecols=[0, 1])
                             bells = bells / bells[0]
-                            this_beam = interp1d(ls, bells, bounds_error=False, fill_value=0)
-                            smap = deconvolve_maps(map_splits[sp],mask,this_beam,lmax=6000)
+                            beam_q = interp1d(ls, bells, bounds_error=False, fill_value=0)
+
+                            foreground = reconvolve_maps(sz_nemo[freq],mask,sz_beam,beam_q)
+                            for j in range(len(map_splits)):
+                                map_splits[j][split] = map_splits[j][split] - foreground #only subtract foreground from T map
+
+
+                    all_maps.append(map_splits)
+                    all_ivars.append(ivar_splits)
+
+
+                    dec_maps = [] #deconvolved beam, pixell window and kspace filter
+                    dec_ivars = [] #assoc ivars of decon maps (ivars are not deconvolved)
+
+
+                    # deconvolve beam ----------------------------------------------
+                    # Pixel window deconvolution, 5.4. [https://arxiv.org/pdf/2304.05202]
+                    for sp in frogress.bar(range(nsplits)):
+                        if not os.path.exists(outdir+'dmap_{0}_{1}'.format(sp,qid)):
+                            if data_run:
+                                fn = f"{beams_path}set{sp}_{array}_{freq}_night_beam_tform_jitter_cmb.txt"
+                                ls, bells = np.loadtxt(fn, unpack=True, usecols=[0, 1])
+                                bells = bells / bells[0]
+                                this_beam = interp1d(ls, bells, bounds_error=False, fill_value=0)
+                                smap = deconvolve_maps(map_splits[sp],mask,this_beam,lmax=6000)
+                            else:
+                                alm = cs.map2alm(map_splits[sp],lmax=6000)
+                                alm_decon = cs.almxfl(alm,lambda ell:1/gauss_beam(ell,beam_fwhm))
+                                imap = enmap.empty((3,)+mask.shape,mask.wcs,dtype=np.float32)
+                                smap = cs.alm2map(alm_decon,imap)
+                            dmap = kspace_mask(smap,vk_mask=[-1*90,90], hk_mask=[-1*50,50],deconvolve=True)
+                            enmap.write_map(outdir+'dmap_{0}_{1}'.format(sp,qid),dmap)
+                            dmap = enmap.read_map(outdir+'dmap_{0}_{1}'.format(sp,qid))
+
+
                         else:
-                            alm = cs.map2alm(map_splits[sp],lmax=6000)
-                            alm_decon = cs.almxfl(alm,lambda ell:1/gauss_beam(ell,beam_fwhm))
-                            imap = enmap.empty((3,)+mask.shape,mask.wcs,dtype=np.float32)
-                            smap = cs.alm2map(alm_decon,imap)
-                        dmap = kspace_mask(smap,vk_mask=[-1*90,90], hk_mask=[-1*50,50],deconvolve=True)
-                        enmap.write_map(outdir+'dmap_{0}_{1}'.format(sp,qid),dmap)
-                        dmap = enmap.read_map(outdir+'dmap_{0}_{1}'.format(sp,qid))
+                            dmap = enmap.read_map(outdir+'dmap_{0}_{1}'.format(sp,qid))
 
+                        dec_maps.append(dmap)
+                        dec_ivars.append(ivar_splits[sp])
+
+
+                    #dec_maps = np.array(dec_maps)
+                    dec_ivars = np.array(dec_ivars)
+                    # estimate data noise --------------------------------
+                    bls=interp1d(np.arange(lmax),np.ones(lmax),bounds_error=False,fill_value=0)
+                    for ispec,spec in enumerate(specs):
+                        if not os.path.exists(outdir + '/1dweights_map_noise_{0}_{1}.txt'):
+                            noisecl= get_datanoise(dec_maps,dec_ivars[:,:,:,:], ispec, ispec, mask,bls,beam_deconvolve=False,N=1,lmax =lmax)
+                            bin_edges = np.linspace(2,len(noisecl),300).astype(int)
+                            cents,cls=bandedcls(noisecl,bin_edges)
+                            cls=maps.interp(cents,cls)(np.arange(len(noisecl)))
+                            noise_specs[ispec, q] = cls
+                            np.savetxt(outdir + '/1dweights_map_noise_{0}_{1}.txt'.format(qids[q],spec),cls)
+                        else:
+                            noise_specs[ispec, q] = np.loadtxt(outdir + '/1dweights_map_noise_{0}_{1}.txt'.format(qids[q],spec))
+
+
+
+
+                    # is this the multiplicative bias from k_space cutting? ---
+                    ells_cal, cal = np.loadtxt(f"{calibration%(array,freq)}",unpack=True)
+                    cal = np.interp(np.arange(lmax),ells_cal,cal)
+
+
+                    # not clear here what to do
+
+                    if MULTIPLE_SPLITS:
+                        imap = enmap.zeros(dec_maps[0].shape,wcs=dec_maps[0].wcs)
+                        ivarreff = enmap.zeros(dec_maps[0].shape,wcs=dec_maps[0].wcs)
+                        for j in range(len(dec_ivars)):
+                            imap += dec_ivars[j]*dec_maps[j]
+                            ivarreff += dec_ivars[j]
+                        coadd_ = imap/ivarreff
 
                     else:
-                        dmap = enmap.read_map(outdir+'dmap_{0}_{1}'.format(sp,qid))
 
-                    dec_maps.append(dmap)
-                    dec_ivars.append(ivar_splits[sp])
+                        coadd_ = dec_maps[nsplits-1]
 
 
-                #dec_maps = np.array(dec_maps)
-                dec_ivars = np.array(dec_ivars)
-                # estimate data noise --------------------------------
-                bls=interp1d(np.arange(lmax),np.ones(lmax),bounds_error=False,fill_value=0)
-                for ispec,spec in enumerate(specs):
-                    if not os.path.exists(outdir + '/1dweights_map_noise_{0}_{1}.txt'):
-                        noisecl= get_datanoise(dec_maps,dec_ivars[:,:,:,:], ispec, ispec, mask,bls,beam_deconvolve=False,N=1,lmax =lmax)
-                        bin_edges = np.linspace(2,len(noisecl),300).astype(int)
-                        cents,cls=bandedcls(noisecl,bin_edges)
-                        cls=maps.interp(cents,cls)(np.arange(len(noisecl)))
-                        noise_specs[ispec, q] = cls
-                        np.savetxt(outdir + '/1dweights_map_noise_{0}_{1}.txt'.format(qids[q],spec),cls)
-                    else:
-                        noise_specs[ispec, q] = np.loadtxt(outdir + '/1dweights_map_noise_{0}_{1}.txt'.format(qids[q],spec))
+                    del dec_ivars
 
 
+                    coadd_[~np.isfinite(coadd_)] = 0
+                    alms=cs.map2alm(coadd_,lmax=lmax)
+                    almsTcal=alms[0]#cs.almxfl(alms[0],1/cal)
+                    almsQcal=alms[1]#/#pol_eff[qids[q]] #### DO WE NEED THIS FOR SIMULATIONS???
+                    almsUcal=alms[2]#/pol_eff[qids[q]] #### DO WE NEED THIS FOR SIMULATIONS???
+                    coadded_alms_specs[0,q]=almsTcal
+                    coadded_alms_specs[1,q]=almsQcal
+                    coadded_alms_specs[2,q]=almsUcal
 
 
-                # is this the multiplicative bias from k_space cutting? ---
-                ells_cal, cal = np.loadtxt(f"{calibration%(array,freq)}",unpack=True)
-                cal = np.interp(np.arange(lmax),ells_cal,cal)
+            if not SIMPLE_SIM:
+                dummy_beam = np.ones(noise_specs[0].shape) # Map already beam-deconvolved
+                f_shape = all_maps[0][0][0].shape
+                f_wcs = all_maps[0][0][0].wcs
 
+                kcoadd_I = kspace_coadd(coadded_alms_specs[0], dummy_beam, noise_specs[0])
+                kcoadd_Q = kspace_coadd(coadded_alms_specs[1], dummy_beam, noise_specs[1])
+                kcoadd_U = kspace_coadd(coadded_alms_specs[2], dummy_beam, noise_specs[2])
+                kcoadd = cs.alm2map(np.array([kcoadd_I, kcoadd_Q, kcoadd_U]), enmap.empty((3,) + f_shape, f_wcs))
+            else:
+                f_shape = map_splits[0][0].shape
+                f_wcs = map_splits[0][0].wcs
+                alms=cs.map2alm(map_splits,lmax=lmax)[0]
+                
+                             
+                alm_decon = cs.almxfl(alms,lambda ell:1/gauss_beam(ell,beam_fwhm))
+                almsTcal=alm_decon[0]#cs.almxfl(alms[0],1/cal)
+                almsQcal=alm_decon[1]#/pol_eff[qids[q]]
+                almsUcal=alm_decon[2]#/pol_eff[qids[q]]
+                kcoadd_I=almsTcal
+                kcoadd_Q=almsQcal
+                kcoadd_U=almsUcal
+                kcoadd = cs.alm2map(np.array([kcoadd_I, kcoadd_Q, kcoadd_U]), enmap.empty((3,) + f_shape, f_wcs))
 
-                # not clear here what to do
-
-                if MULTIPLE_SPLITS:
-                    imap = enmap.zeros(dec_maps[0].shape,wcs=dec_maps[0].wcs)
-                    ivarreff = enmap.zeros(dec_maps[0].shape,wcs=dec_maps[0].wcs)
-                    for j in range(len(dec_ivars)):
-                        imap += dec_ivars[j]*dec_maps[j]
-                        ivarreff += dec_ivars[j]
-                    coadd_ = imap/ivarreff
-
-                else:
-
-                    coadd_ = dec_maps[nsplits-1]
-
-
-                del dec_ivars
-
-
-                coadd_[~np.isfinite(coadd_)] = 0
-                alms=cs.map2alm(coadd_,lmax=lmax)
-                almsTcal=cs.almxfl(alms[0],1/cal)
-                almsQcal=alms[1]/pol_eff[qids[q]]
-                almsUcal=alms[2]/pol_eff[qids[q]]
-                coadded_alms_specs[0,q]=almsTcal
-                coadded_alms_specs[1,q]=almsQcal
-                coadded_alms_specs[2,q]=almsUcal
-
-
-
-
-            dummy_beam = np.ones(noise_specs[0].shape) # Map already beam-deconvolved
-            f_shape = all_maps[0][0][0].shape
-            f_wcs = all_maps[0][0][0].wcs
-
-            kcoadd_I = kspace_coadd(coadded_alms_specs[0], dummy_beam, noise_specs[0])
-            kcoadd_Q = kspace_coadd(coadded_alms_specs[1], dummy_beam, noise_specs[1])
-            kcoadd_U = kspace_coadd(coadded_alms_specs[2], dummy_beam, noise_specs[2])
-            kcoadd = cs.alm2map(np.array([kcoadd_I, kcoadd_Q, kcoadd_U]), enmap.empty((3,) + f_shape, f_wcs))
             #imap = enmap.empty(f_shape,f_wcs)
             #omap = cs.alm2map(kcoadd_I,imap)
             #io.plot_img(omap,down=8,filename=f"{LC.kcoadd_path}kcoadd_I.png")
@@ -864,49 +944,109 @@ def doit(sim_num,MULTIPLE_SPLITS,add_noise,output_folder_general,cosmology, stag
                         print (file)
                     else:
                         os.remove(file)
+    
+    # filter
 
-        #'''
+    if not os.path.exists(outdir+'TEB_smoothed_cls1.npy'):
+        # load TEB_alms, smooth them (why?), and then computes TT,EE,BB,TE cls.
+    
+        mask_path = path_files + "/mask/act_mask_fejer1_20220316_GAL070_rms_70.00_downgrade_3dg.fits"
+        mask = enmap.read_map(mask_path)
+        if SIMPLE_SIM:
+            alms = reshape_alm(outdir+'kcoadded_alms', mask, mlmax, shape,wcs,skip_mask = True)
+        else:
+            alms = reshape_alm(outdir+'kcoadded_alms', mask, mlmax, mask.shape,mask.wcs)
+
+        hp.write_alm(outdir+'kcoadded_alms_reshaped',alms,overwrite=True)
+        if SIMPLE_SIM:
+            cls = smooth_pack(alms, mask, 2, no_mask = True)
+        else:
+            cls = smooth_pack(alms, mask, 2)
+        np.save(outdir+'TEB_smoothed_cls.npy',cls)
 
 if __name__ == '__main__':
 
-    '''
-    #sinlge job code
+
+        
+    if SYSTEM == 'niagara':
+        output_folder_general = '/scratch/r/rbond/jaejoonk/CMB_lensing_maps/sims/'
+    else:
+        output_folder_general = '/pscratch/sd/m/mgatti/CMB_lensing_maps_sims/'
     
-    output_folder_general = '/pscratch/sd/m/mgatti/CMB_lensing_maps_sims/'
+    
     MULTIPLE_SPLITS = False
     add_noise = True
-    realisation_number = 3
+    tot_realisations = 40
     cosmology = 'fiducial'
+    noisyB = True #
+    SIMPLE_SIM = True
     
-    doit(realisation_number,MULTIPLE_SPLITS,add_noise,output_folder_general,cosmology, stages = ['kspace_coadd','inpaint','downgrade','add_noise','make_alms'])
-    '''
     
+    # Figure out which runs you have to do ---------------------
+    runstodo = []
+    
+    if add_noise:
+        noise = 'noisy'
+    else:
+        noise = 'noiseless'
         
+    if MULTIPLE_SPLITS:
+        spl = '8split'
+    else:
+        spl = '1split' 
+        
+    if SIMPLE_SIM:
+        # overwrite some settings to make a 1-split, 1-channel map, with no mask 
+        spl = '1split'
+        a_f = ['pa6_f150']
+        qids = ['pa6b'] 
+    
+    for i in range(tot_realisations):
+        if not noisyB:
+            if not SIMPLE_SIM:
+                outdir = output_folder_general+'/{0}_{1}_{2}_{3}/'.format(cosmology,noise,i,spl)
+            else:
+                outdir = output_folder_general+'/SIMPLE_{0}_{1}_{2}_{3}/'.format(cosmology,noise,i,spl)
+        else:
+            if not SIMPLE_SIM:
+                outdir = output_folder_general+'/{0}_{1}_{2}_{3}_pair/'.format(cosmology,noise,i,spl)
+            else:
+                outdir = output_folder_general+'/SIMPLE_{0}_{1}_{2}_{3}_pair/'.format(cosmology,noise,i,spl)               
+        
+        if not os.path.exists(outdir+'TEB_smoothed_cls1.npy'):
+            runstodo.append(i)
+    # ------------------------------------------------------------
+    #run one job
+    #print (runstodo)
+   # doit(runstodo[0],MULTIPLE_SPLITS,add_noise,output_folder_general,cosmology ,noisyB, SIMPLE_SIM,stages = ['kspace_coadd','inpaint','downgrade','add_noise','make_alms'])
+    #doit(runstodo[1],MULTIPLE_SPLITS,add_noise,output_folder_general,cosmology ,noisyB, SIMPLE_SIM,stages = ['kspace_coadd','inpaint','downgrade','add_noise','make_alms'])
+    
     #'''
-    #run in parallel
-    
-    output_folder_general = '/pscratch/sd/m/mgatti/CMB_lensing_maps_sims/'
-    MULTIPLE_SPLITS = False
-    add_noise = True
-    tot_realisations = 10
-    cosmology = 'fiducial'
-    
-
-    
     from mpi4py import MPI
-    run_count=0
-    while run_count<tot_realisations:
-        #runit(tiles[run_count])
-        comm = MPI.COMM_WORLD
-        if (run_count+comm.rank)<tot_realisations:
-            doit(run_count+comm.rank,MULTIPLE_SPLITS,add_noise,output_folder_general,cosmology ,stages = ['kspace_coadd','inpaint','downgrade','add_noise','make_alms'])
-        run_count+=comm.size
-        comm.bcast(run_count,root = 0)
-        comm.Barrier()
-        
-   #'''
-    
-    
+    comm = MPI.COMM_WORLD
+    size = comm.Get_size()
+    rank = comm.Get_rank()
 
-#module load PrgEnv-intel
-#srun --nodes=1 --tasks-per-node=8  python make_CMB_lensing_mocks_theory.py
+    # Start with run_count = 0, but each process handles tasks based on rank
+    run_count = rank
+
+    # Loop over tasks
+    while run_count < len(runstodo):
+        # Each process works on its own task
+        try:
+        #if 1 ==1:
+            doit(runstodo[run_count],MULTIPLE_SPLITS,add_noise,output_folder_general,cosmology ,noisyB, SIMPLE_SIM,stages = ['kspace_coadd','inpaint','downgrade','add_noise','make_alms'])
+        except:
+            pass
+        # Increment run_count by the size of the communicator to move to the next task for this process
+        run_count += size
+
+    comm.Barrier()
+   # '''
+'''
+module load python
+source activate cmb_lensing_env
+module load PrgEnv-intel
+srun --nodes=4 --tasks-per-node=10  python make_CMB_lensing_mocks_theory.py
+'''
+

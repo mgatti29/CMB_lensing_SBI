@@ -9,6 +9,8 @@ import gc
 import math
 import healpy as hp
 
+
+
 def _far_point_box(box_size, x_i, y_i, z_i):
     """
     Calculate the distance to the farthest point of a box from the origin,
@@ -31,12 +33,15 @@ def _far_point_box(box_size, x_i, y_i, z_i):
     
     # Calculate the distance from the origin to the farthest point
     d_ = np.sqrt(x_b**2 + y_b**2 + z_b**2) - np.sqrt(3 * (box_size)**2)
+    d_1 = np.sqrt(x_b**2 + y_b**2 + z_b**2) + np.sqrt(3 * (box_size)**2)
     
+        
     # Ensure the distance is not negative
     if d_ < 0:
         d_ = 0
         
-    return d_
+    return d_,d_1
+
 
 
 def load_snapshot(path_base, c_, mode, Lbox_Mpc, f_mass):
@@ -61,14 +66,20 @@ def load_snapshot(path_base, c_, mode, Lbox_Mpc, f_mass):
         }
     else:
         p = f'{path_base}run.00{c__}.fofstats.0'
+        p1 = f'{path_base}Density_shell.00{c__}.fofstats'
         pkd_halo_dtype = np.dtype([("rPot", ("f4", 3)), ("minPot", "f4"), ("rcen", ("f4", 3)),
                                    ("rcom", ("f4", 3)), ("cvom", ("f4", 3)), ("angular", ("f4", 3)),
                                    ("inertia", ("f4", 6)), ("sigma", "f4"), ("rMax", "f4"),
                                    ("fMAss", "f4"), ("fEnvironDensity0", "f4"),
                                    ("fEnvironDensity1", "f4"), ("rHalf", "f4")])
-        halos = np.fromfile(p, count=-1, dtype=pkd_halo_dtype)
+        try:
+            halos = np.fromfile(p, count=-1, dtype=pkd_halo_dtype)
+        except:
+            halos = np.load(p1+'.npy')
+            
         int_fac = 1.0
         halo_center1 = Lbox_Mpc * (halos["rPot"] * int_fac + halos["rcen"] + 0.5)
+            
         halo_center1 = np.array(halo_center1)
         output = {
             'x': halo_center1[:, 0],
@@ -154,7 +165,7 @@ def return_params(path_runs, folder, run):
 
 
 
-def process_resume(path_z_file):
+def process_resume(path_z_file,max_z = 49):
     # Initialize the resume dictionary with empty lists
     resume = {
         'Step': [],
@@ -185,7 +196,7 @@ def process_resume(path_z_file):
                 resume['delta_cmd'].append(mute[6])
 
     # Find the index of the last occurrence of the value 49 in the 'z_far' list
-    init = np.where(np.array(resume['z_far']) == 49)[0][-1]
+    init = np.where(np.array(resume['z_far']) == max_z)[0][-1]
 
     # Adjust the lists in the resume dictionary from the found index
     resume['Step'] = np.array(resume['Step'])[init:] - init
@@ -201,8 +212,28 @@ def process_resume(path_z_file):
 
 
 
+def may_intersect_sphere(x_i, y_i, z_i, Lbox_Mpc, d_min, d_max):
+    # Center of the box after translation
+    center_x = x_i * Lbox_Mpc + Lbox_Mpc / 2
+    center_y = y_i * Lbox_Mpc + Lbox_Mpc / 2
+    center_z = z_i * Lbox_Mpc + Lbox_Mpc / 2
+    center = np.array([center_x, center_y, center_z])
 
-def save_halocatalog(file, max_step_halocatalog, resume, interpolated_distance_to_redshift, mode = 'fof'):
+    # Distance from the origin to the center of the box
+    center_distance = np.linalg.norm(center)
+    
+    # Radius of the sphere that contains the entire box (half-diagonal of the box)
+    half_diagonal = np.sqrt(3) * (Lbox_Mpc / 2)
+
+    # Calculate the minimum and maximum distances any point in the box could be from the origin
+    min_distance = max(0, center_distance - half_diagonal)
+    max_distance = center_distance + half_diagonal
+
+    # Check if there's any overlap between the box and the sphere range
+    return (min_distance <= d_max and max_distance >= d_min),min_distance,max_distance
+
+
+def save_halocatalog(file, max_step_halocatalog, resume, interpolated_distance_to_redshift, mode = 'fof', HR = False):
     """
     Save the halo catalog to a FITS file with specified columns and data types,
     including header comments to explain the units.
@@ -224,13 +255,17 @@ def save_halocatalog(file, max_step_halocatalog, resume, interpolated_distance_t
         'z': [],
         'M': [],
         'redshift': [],
-        'R': []
+        'R': [],
+        'ra': [],
+        'dec': [],
+        'redshift_hr': [],
+        
+        
+        
     }
-
-
+    
     count = 0
-    collect = []
-
+   
     # Iterate through each step in the halo catalog
     for i_ in frogress.bar(np.arange(0, max_step_halocatalog)):
         i = len(resume['Step']) - i_ - 1
@@ -242,51 +277,55 @@ def save_halocatalog(file, max_step_halocatalog, resume, interpolated_distance_t
         output_ = load_snapshot(file, step, mode, resume['Lbox_Mpc'], resume['f_mass'])
 
         number_14 = len(output_['M'][output_['M'] > 14.])
-        collect.append(number_14)
-        replicas_max = math.ceil(d_max / resume['Lbox_Mpc'] + 1)
-        replicas_min = math.ceil(d_min / resume['Lbox_Mpc'] + 1)
+       # collect.append(number_14)
+        replicas_max = np.ceil(d_max / resume['Lbox_Mpc']).astype(int)
+        replicas_min = np.ceil(d_min / resume['Lbox_Mpc']).astype(int)
 
         #print('')
         #print('d_max: ',d_max)
         #print('replicas: ',replicas_max) 
+
         count_i = 0
         add = 0
 
         f = 1.0
+        
+        final_cat_x = []
+        final_cat_y = []
+        final_cat_z = []
+        final_cat_M = []
+        final_cat_R = []
+        final_cat_redshift = []
         # Iterate through replicas
-        for x_i in range(-replicas_max, replicas_max + 1):
-            for y_i in range(-replicas_max - 1, replicas_max + 1):
-                for z_i in range(-replicas_max - 1, replicas_max + 1):
-                    close_box = _far_point_box(resume['Lbox_Mpc'], x_i, y_i, z_i)
-
-                    if d_min > close_box:
-                        if count_i == 0:
+        for x_i in range(-replicas_max, replicas_max ):
+            for y_i in range(-replicas_max , replicas_max ):
+                for z_i in range(-replicas_max , replicas_max ):
+                    may_intersect, close_box,far_box = may_intersect_sphere(x_i, y_i, z_i, resume['Lbox_Mpc'], d_min, d_max)
+                        
+                    if may_intersect:
                             new_x = output_['x'] + x_i * resume['Lbox_Mpc']
                             new_y = output_['y'] + y_i * resume['Lbox_Mpc']
                             new_z = output_['z'] + z_i * resume['Lbox_Mpc']
                             r = np.sqrt(new_x**2 + new_y**2 + new_z**2)
                             mask = (r >= d_min) & (r < d_max)
-                            final_cat_x = new_x[mask]
-                            final_cat_y = new_y[mask]
-                            final_cat_z = new_z[mask]
-                            final_cat_M = output_['M'][mask]
-                            final_cat_R = output_['rhalf'][mask]
-                            final_cat_redshift = interpolated_distance_to_redshift(r[mask])
-                            count_i += 1
+                            if np.any(mask):
+                                final_cat_x.append(new_x[mask])
+                                final_cat_y.append(new_y[mask])
+                                final_cat_z.append(new_z[mask])
+                                final_cat_M.append(output_['M'][mask])
+                                final_cat_R.append(output_['rhalf'][mask])
+                                final_cat_redshift.append(interpolated_distance_to_redshift(r[mask]))
                             add += 1
-                        else:
-                            new_x = output_['x'] + x_i * resume['Lbox_Mpc']
-                            new_y = output_['y'] + y_i * resume['Lbox_Mpc']
-                            new_z = output_['z'] + z_i * resume['Lbox_Mpc']
-                            r = np.sqrt(new_x**2 + new_y**2 + new_z**2)
-                            mask = (r >= d_min) & (r < d_max)
-                            final_cat_x = np.hstack([final_cat_x, new_x[mask]])
-                            final_cat_y = np.hstack([final_cat_y, new_y[mask]])
-                            final_cat_z = np.hstack([final_cat_z, new_z[mask]])
-                            final_cat_M = np.hstack([final_cat_M, output_['M'][mask]])
-                            final_cat_R = np.hstack([final_cat_R, output_['rhalf'][mask]])
-                            final_cat_redshift = np.hstack([final_cat_redshift, interpolated_distance_to_redshift(r[mask])])
-                            add += 1
+         
+                            
+                            
+        # Convert lists to single numpy arrays
+        final_cat_x = np.concatenate(final_cat_x)
+        final_cat_y = np.concatenate(final_cat_y)
+        final_cat_z = np.concatenate(final_cat_z)
+        final_cat_M = np.concatenate(final_cat_M)
+        final_cat_R = np.concatenate(final_cat_R)
+        final_cat_redshift = np.concatenate(final_cat_redshift)    
 
         if count == 0:
             if add > 0:
@@ -295,13 +334,25 @@ def save_halocatalog(file, max_step_halocatalog, resume, interpolated_distance_t
                 final_cat['redshift'] = (final_cat_redshift * 10000).astype('uint16')
                 final_cat['R'] = (final_cat_R * 1000).astype('uint16')
                 count += 1
+                
+                if HR:
+                    final_cat['redshift_hr'] = final_cat_redshift
+                    ra, dec = hp.pixelfunc.vec2ang(np.array([final_cat_x, final_cat_y, final_cat_z]).T, lonlat = True)
+                    final_cat['ra'] = final_cat_redshift
+                    final_cat['dec'] = final_cat_redshift
+
         else:
             final_cat['pix_16384_ring'] = np.hstack([final_cat['pix_16384_ring'], hp.pixelfunc.vec2pix(8192 * 2, np.array(final_cat_x), np.array(final_cat_y), np.array(final_cat_z), nest=False).astype('uint32')])
             final_cat['M'] = np.hstack([final_cat['M'], (final_cat_M * 1000).astype('uint16')])
             final_cat['R'] = np.hstack([final_cat['R'], (final_cat_R * 1000).astype('uint16')])
             final_cat['redshift'] = np.hstack([final_cat['redshift'], (final_cat_redshift * 10000).astype('uint16')])
 
-  
+            if HR:
+                final_cat['redshift_hr'] =  np.hstack([final_cat['redshift_hr'],final_cat_redshift])
+                ra, dec = hp.pixelfunc.vec2ang(np.array([final_cat_x, final_cat_y, final_cat_z]).T, lonlat = True)
+                final_cat['ra']  = np.hstack([final_cat['ra'],final_cat_redshift])
+                final_cat['dec'] = np.hstack([final_cat['dec'],final_cat_redshift])
+
 
     # Save the final catalog to a FITS file
     if os.path.exists(path_to_save):
@@ -313,6 +364,11 @@ def save_halocatalog(file, max_step_halocatalog, resume, interpolated_distance_t
     fits_f['R'] = (final_cat['R']).astype('uint16')
     fits_f['redshift'] = (final_cat['redshift']).astype('uint16')
     
+    if HR:
+        fits_f['redshift_hr'] = final_cat['redshift_hr']
+        fits_f['ra'] = final_cat['ra']
+        fits_f['dec'] = final_cat['dec']
+        
     hdu = fits.BinTableHDU(data=fits_f)
     
     # Add comments to the header

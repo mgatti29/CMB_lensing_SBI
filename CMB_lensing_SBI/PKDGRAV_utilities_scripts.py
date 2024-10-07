@@ -12,6 +12,7 @@ matplotlib.use('Agg') # See http://stackoverflow.com/questions/2801882/generatin
 import matplotlib.pyplot as plt
 import healpy as hp
 from astropy.cosmology import FlatLambdaCDM
+from astropy.cosmology import wCDM
 import datetime
 import os
 import contextlib
@@ -482,7 +483,7 @@ def match_points_between_boxes():
 
 
     
-def build_z_values_file(directory, out_name,out_dir):
+def build_z_values_file(directory, out_name,out_dir, H0 = 70, w = -1, Lbox_Mpc = None):
 
     log_file_name = os.path.join(directory, "{}.log".format(out_name))
     control_file_name = os.path.join(directory,  "control.par")
@@ -494,14 +495,17 @@ def build_z_values_file(directory, out_name,out_dir):
     s_arr = range(z_arr.shape[0])
     
     Om0 = get_parameter_from_log_file(log_file_name, "dOmega0")
-    cosmo = FlatLambdaCDM(H0=100.0, Om0=Om0) # Will only be approximately correct.
+    cosmo = wCDM(H0=H0, Om0=Om0,w0 = w,  Ode0=1-Om0) # Will only be approximately correct.
     
-    box_size = float(get_from_control_file(control_file_name, "dBoxSize"))
+    if Lbox_Mpc is not None:
+        box_size = Lbox_Mpc
+    else:
+        box_size = float(get_from_control_file(control_file_name, "dBoxSize")) # in Mpc
     
-    cmd_arr = cosmo.comoving_distance(z_arr).value # In Mpc/h
+    cmd_arr = cosmo.comoving_distance(z_arr).value # In Mpc
     cmd_over_box_arr = cmd_arr / box_size # Unitless
     
-    slice_volume = (4.0 / 3.0) * math.pi * (cmd_arr[:-1]**3 - cmd_arr[1:]**3) # In (Mpc/h)^3
+    slice_volume = (4.0 / 3.0) * math.pi * (cmd_arr[:-1]**3 - cmd_arr[1:]**3) # In (Mpc)^3
     slice_volume_over_box_volume = slice_volume / box_size**3
     
     

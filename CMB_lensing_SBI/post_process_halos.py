@@ -137,6 +137,7 @@ def return_params(path_runs, folder, run):
         n_s_ = []
         sigma_8_ = []
         w_ = []
+        mv_ = []
 
         # Iterate over each line in the file
         for i, f_ in enumerate(f):
@@ -151,6 +152,10 @@ def return_params(path_runs, folder, run):
                 Omega_b_.append(float(values[3]))
                 h_.append(float(values[4]))
                 n_s_.append(float(values[5]))
+                try:
+                    mv_.append(float(values[6]))
+                except:
+                    mv_.append(0.06)
 
     # Select the parameters corresponding to the seed value
     om = om_[seed - 1]
@@ -159,9 +164,10 @@ def return_params(path_runs, folder, run):
     Omega_b = Omega_b_[seed - 1]
     n_s = n_s_[seed - 1]
     h = h_[seed - 1] * 100. * u.km / u.s / u.Mpc
-
+    mv =  mv_[seed - 1]
+    
     # Return the selected parameters
-    return om, sigma_8, w, Omega_b, n_s, h
+    return om, sigma_8, w, Omega_b, n_s, h, mv
 
 
 

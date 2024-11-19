@@ -1,0 +1,209 @@
+from pixell import enmap, curvedsky as cs, utils as u, lensing as plensing, enplot
+import numpy as np
+import os,sys
+import healpy as hp
+from orphics import maps, io, cosmology, stats
+from falafel import utils as futils
+import pytempura
+import pyfisher
+from enlib import bench
+import solenspipe ## switch to branch so_lenspipe
+from mpi4py import MPI
+comm = MPI.COMM_WORLD
+
+# ARGPARSE
+
+import argparse
+# Parse command line
+parser = argparse.ArgumentParser(description='Run the lensing sandbox.')
+parser.add_argument("outname", type=str,help='Name of outputs. Could include a path.')
+parser.add_argument("--estimator", type=str, default='MV',help="Estimator.")
+parser.add_argument("--nsims", type=int, default=8,help="No. of RDN0 sims. Defaults to 8.")
+parser.add_argument("--nsims-n1", type=int, default=None,
+                    help="No. of MCN1 sims. Same as nsims if not specified.")
+parser.add_argument("--nsims-mf", type=int, default=None,
+                    help="No. of MCMF sims. Same as nsims if not specified.")
+parser.add_argument("-d", "--debug", action='store_true',
+                    help='Overrides arguments and does a debug run where nsims is 8 and lmaxes are low.')
+parser.add_argument("--mask", type=str, help="Path to mask .fits file, should be a pixell enmap.")
+parser.add_argument("--sbi-maps",type=str,help="Path+filename template for the SBI mock data") #/home/s/sievers/kaper/scratch/sbi_outputs/sim_cmb_lensed_map_%s.fits
+parser.add_argument("--num-sbi-mocks",type=int,help="Number of SBI mock data maps")
+parser.add_argument("--apodize", type=float, help='Apodize the mask with input width in degrees. Only applies if a mask is passed in.')
+parser.add_argument("--no-save", action='store_true',help='Dont save outputs other than plots.')
+parser.add_argument("--add-white-noise", action='store_true',help='Whether to add white noise to sim maps.')
+parser.add_argument("--white-noise-level",type=float,help="White noise level in units of uK-arcmin (only relevant if add-white-noise is True).")
+parser.add_argument("--fwhm",type=float,help="Beam fwhm in units of arcmin.")
+parser.add_argument("--map-plots", action='store_true',help='Whether to plot data maps.')
+required_args = parser.add_argument_group('Required arguments')
+args = parser.parse_args()
+
+debug = args.debug
+outname = args.outname
+save_map_plots = args.map_plots
+
+# Specify instrument
+fwhm_arcmin = args.fwhm  #1.5 for sbi sims
+noise_uk = args.white_noise_level #10 uK-arcmin for sbi sims
+
+add_white_noise = args.add_white_noise
+
+# Specify analysis
+lmin = 600
+lmax = 3000 if not(debug) else 1000
+mlmax = 4000 if not(debug) else 1000
+Lmax = 2000 if not(debug) else 1000
+est = args.estimator if not(debug) else 'TT'
+ests = [est]
+nsims_rdn0 = args.nsims if not(debug) else 8
+nsims_n1 = args.nsims_n1 if not(args.nsims_n1 is None) else nsims_rdn0
+nsims_mf = args.nsims_mf if not(args.nsims_mf is None) else nsims_rdn0
+
+print(nsims_mf)
+print(nsims_rdn0)
+print(nsims_n1)
+
+if args.mask is not None:
+    mask = enmap.read_map(args.mask)
+    if args.apodize is not None:
+        mask = maps.cosine_apodize(mask, args.apodize)
+else:
+    mask = args.mask
+
+mg = solenspipe.LensingSandbox(fwhm_arcmin,noise_uk,dec_min=None,dec_max=None,res=None,
+                               lmin=lmin,lmax=lmax,mlmax=mlmax,ests=ests,
+                               add_white_noise=add_white_noise,
+                               add_noise_model=False,
+                               noise_model_path=None,
+                               add_noise_map = False,
+                               noise_map_path = None,
+                               mask=mask,verbose=True)
+#print(mg.shape)
+print("adding white noise??")
+print(mg.add_white_noise)
+
+def load_mock_data(index):
+    data_mock = enmap.read_map(f"{args.sbi_maps%(str(index).zfill(4))}")
+    if mg.mask is not None:
+        masked_mock = mg._apply_mask(data_mock,mg.mask)
+    else:
+        masked_mock = data_mock
+    return masked_mock
+
+n_runs = args.num_sbi_mocks
+
+###N1 and MF will be the same for diff mock data maps since they only depend on sims
+mcn1 = mg.get_mcn1(est,nsims_n1,comm)[0]
+
+if nsims_mf==0:
+    print("Skipping meanfield...")
+    mcmf_alm_1 = 0.
+    mcmf_alm_2 = 0.
+else:
+    print("Meanfield...")
+    mcmf_alm_1, mcmf_alm_2 = mg.get_mcmf(est,nsims_mf,comm)
+    # Get only gradient components of mcmf
+    mcmf_alm_1 = mcmf_alm_1[0]
+    mcmf_alm_2 = mcmf_alm_2[0]
+
+kalm = maps.change_alm_lmax(futils.get_kappa_alm(0),mlmax)
+clkk_ii = cs.alm2cl(kalm,kalm) # Input x Input same always
+ls = np.arange(clkk_ii.size)
+
+# Binner
+bin_edges = np.append([2,6,12,20,30,40,60],  np.arange(80,Lmax,80))
+binner = stats.bin1D(bin_edges)
+
+# Get theory error bars 
+#### probably need to re-write this since it requires cls_dict for each cosmology??
+specs = ['kk']
+cls_dict = {'kk':lambda x : cosmology.default_theory().gCl('kk',x)}
+nls = mg.Nls[est]
+lns = np.arange(nls.size)
+nls_dict = {'kk': maps.interp(lns, nls)}
+cov = pyfisher.gaussian_band_covariance(bin_edges,specs,cls_dict,nls_dict)
+errs = np.sqrt(cov[:,0,0] / mg.w4) # TODO: double-check fsky factor
+
+cents,bclkk_ii = binner.bin(ls,clkk_ii)
+
+mcn1 = mcn1 * (ls*(ls+1))**2./4. / mg.w4
+
+if nsims_mf>0:
+    # Just for diagnostics; already subtracted
+    mcmf = cs.alm2cl(mcmf_alm_1, mcmf_alm_2) * (ls*(ls+1))**2./4. / mg.w4 
+    cents,bmcmf = binner.bin(ls,mcmf)
+else:
+    mcmf = clkk_ii * 0.
+    bmcmf = 0.
+    
+cents,bmcn1 = binner.bin(ls,mcn1)
+##will need to recalculate N0 for each mock data map
+
+
+for i in range(n_runs):
+    data_map = load_mock_data(i)
+    Xdata = mg.prepare(data_map) #transform map to alms, apply isotropic filter
+    galm,calm = mg.qfuncs[est](Xdata,Xdata)
+    
+
+    if save_map_plots and i==0:
+        io.hplot(data_map,f'{outname}_data_map',downgrade=4)
+        io.hplot(mask,f'{outname}_mask',downgrade=4)
+
+    rdn0 = mg.get_rdn0(Xdata,est,nsims_rdn0,comm)[0]
+
+    galm_1 = plensing.phi_to_kappa(galm - mcmf_alm_1)
+    galm_2 = plensing.phi_to_kappa(galm - mcmf_alm_2)
+    # Get the input kappa
+    
+    if save_map_plots and i==0: 
+        io.hplot(cs.alm2map(galm, enmap.empty(mg.shape,mg.wcs,dtype=np.float32)),f'{outname}_kappa_map',downgrade=4)
+    clkk_xx = cs.alm2cl(galm_1,galm_2)/mg.w4 # MF-subtracted raw auto-spectrum
+    # Cross-correlate input with the averaged MF-subtracted alms
+    clkk_ix = cs.alm2cl(kalm,0.5*(galm_1+galm_2))/mg.w2 # Input x Recon
+    # Bin
+    cents,bclkk_ix = binner.bin(ls,clkk_ix)
+    cents,bclkk_xx = binner.bin(ls,clkk_xx)
+
+    # Collect biases and convert from phi to kappa
+    rdn0 = rdn0 * (ls*(ls+1))**2./4. / mg.w4
+
+    cents,brdn0 = binner.bin(ls,rdn0)
+    
+    bclkk_final = bclkk_xx-brdn0-bmcn1 # Final debiased power spectrum
+
+    # Plot relative difference from input
+    for xscale in ['log','lin']:
+        pl = io.Plotter('rCL',xyscale=f'{xscale}lin')
+        # this is the multiplicative bias
+        pl.add(cents,bclkk_ix/bclkk_ii,
+               label=r'$C_L^{\kappa\hat{\kappa}} / C_L^{\kappa\kappa}$ Mul. bias')
+        # this is the additive bias
+        pl.add_err(cents,bclkk_final/bclkk_ii,yerr=errs/bclkk_ii,
+                   label=r'$(C_L^{\hat{\kappa}\hat{\kappa}}-N_L^{0,\rm RD} - N_L^{1,\rm MC} ) / C_L^{\kappa\kappa}$ Add. bias')
+        pl.hline(y=1)
+        pl._ax.set_ylim(0.8,1.5)
+        pl._ax.set_xlim(2,Lmax)
+        pl.legend('outside')
+        pl.done(f'{outname}_rclkk_ix_{xscale}_mock_{str(i).zfill(4)}.png')
+
+    # Plot all spectra and components
+    for xscale in ['log','lin']:
+        pl = io.Plotter('CL',xyscale=f'{xscale}log')
+        pl.add(cents,bclkk_ix,label=r'$C_L^{\kappa\hat{\kappa}}$')
+        pl.add(cents,bclkk_ii,label=r'$C_L^{\kappa\kappa}$')
+        pl.add(cents,bclkk_xx,label=r'$C_L^{\hat{\kappa}\hat{\kappa}}$')
+        pl.add(cents,brdn0,label=r'$N_L^{0,\rm RD}$')
+        pl.add(cents,bmcn1,label=r'$N_L^{1,\rm MC}$')
+        if nsims_mf>0: pl.add(cents,bmcmf,label=r'$C_L^{\rm MCMF}$')
+        pl.add(lns,nls,label=r'$N_L$ opt. theory',ls='--')
+        pl.add_err(cents,bclkk_final,yerr=errs,
+                   label=r'Debiased $C_L^{\hat{\kappa}\hat{\kappa}}-N_L^{0,\rm RD} - N_L^{1,\rm MC} $')
+        pl._ax.set_ylim(1e-9,3e-7)
+        pl._ax.set_xlim(2,Lmax)
+        pl.legend('outside')
+        pl.done(f'{outname}_clkk_ix_{xscale}_mock_{str(i).zfill(4)}.png')
+        
+    if not(args.no_save): io.save_cols(f"{outname}_output_clkk_mock_{str(i).zfill(4)}.txt",
+                                    (ls,clkk_ii,clkk_xx,clkk_ix,rdn0,
+                                    mcn1,mcmf,clkk_xx-rdn0-mcn1))
+                                    

@@ -24,10 +24,10 @@ from getdist import plots, MCSamples
 
 parser = argparse.ArgumentParser(description="Script to run pydelfi on " + \
                                  "input CMB lensing data vectors.")
-parser.add_argument("--input", type=str,
+parser.add_argument("--input", type=str, required=True,
                     help="Path to input CMB lensing data vectors, " + \
                          "formatted as a .npy file")
-parser.add_argument("--output", type=str,
+parser.add_argument("--output", type=str, required=True,
                     help="Path to write output files. If directory " + \
                          "doesn't exist, the script will create it.")
 parser.add_argument("--data-index", type=int,
@@ -60,7 +60,7 @@ if not os.path.exists(args.output):
 
 # normalize data
 data_zs = (data['data_vector']-np.median(data['data_vector'],axis=0)) 
-data_zs =/ np.std(data['data_vector'], axis=0)
+data_zs /= np.std(data['data_vector'], axis=0)
 
 # just choosing this scheme based on hyperparameters
 sim_data = np.clip(CLIP_MID + (CLIP_MID * 0.4) * data_zs, CLIP_MIN, CLIP_MAX)
@@ -108,11 +108,11 @@ NDEs = [ndes.ConditionalMaskedAutoregressiveFlow(n_parameters=nn,
 pn = ['p{0}'.format(i) for i in range(nn)]
 
 try:
-    os.mkdir(RESULTS_DIR)
+    os.makedirs(RESULTS_DIR)
 except FileExistsError:
     pass
 try:
-    os.mkdir(RESULTS_DIR + 'nde_' + str(base))
+    os.makedirs(RESULTS_DIR + 'nde_' + str(base))
 except FileExistsError:
     pass
 try:
@@ -136,8 +136,8 @@ DelfiEnsemble.load_simulations(full_data_sim_array, full_data_sim_params)
 DelfiEnsemble.train_ndes()
 
 n_dim2d = nn
-n_burn2d = 100
-n_steps2d = 10000
+n_burn2d = 4000
+n_steps2d = 20000
 n_walkers2d = nn * n_dim2d
 
 theta0_2d = np.array([list(initial_parameters(theta2d_expected_mean, 0.01))
@@ -159,7 +159,8 @@ sampler2d_ = mc.EnsembleSampler(n_walkers2d, n_dim2d,
 _ = sampler2d_.run_mcmc(theta0_2d, n_burn2d+n_steps2d)
 final_chain = sampler2d_.get_chain()
 
-np.save(args.output + "final_chain.npy", final_chain)
+np.save(args.output + "_final_chain.npy", final_chain)
+print(f"Saved chains to {args.output}_final_chain.npy.")
 
 samples = MCSamples(samples=[final_chain[:,:,0].flatten(),
                              final_chain[:,:,1].flatten()],
@@ -174,3 +175,6 @@ g = plots.get_subplot_plotter()
 
 g.triangle_plot([samples],['Om','s8'],legend_loc='upper right',
                 markers = full_data['sim_params'][DATA_INDEX])
+g.export(args.output + "_posteriors.png")
+
+print(f"Saved contour plot to {args.output}_posteriors.png.")

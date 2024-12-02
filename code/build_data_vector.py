@@ -30,21 +30,20 @@ bin_edges = np.append([2,6,12,20,30,40,60],  np.arange(80,args.Lmax,80))
 binner = stats.bin1D(bin_edges)
 
 data = {}
-data['param_labels'] = ['Om', 's8']
-data['params'] = np.zeros(args.sim_end-args.sim_start+1,
-                          len(data['param_labels']))
-data['data_vector'] = np.zeros(args.sim_end-args.sim_start+1,
-                               len(bin_edges)-1)
+data['param_labels'] = np.array(['Om', 's8'])
+data['params'] = np.zeros((args.sim_end-args.sim_start+1,
+                           len(data['param_labels'])))
+data['data_vector'] = np.zeros((args.sim_end-args.sim_start+1,
+                                len(bin_edges)-1))
 
 filename_cosmo = args.input_cosmo
 OmMs, S8s = np.loadtxt(filename_cosmo, unpack=True, usecols=[3,4])
 
 for index in range(args.sim_start, args.sim_end+1):
-    filename_ps = args.input.replace(full_formatter,
-                                     str(index).zfill(formatter_count))
-    data = np.loadtxt(filename) # ells, clkk
-    cents, bclkk = binner.bin(*data)
-
+    filename_ps = args.input_ps.replace(full_formatter,
+                                        str(index).zfill(formatter_count))
+    data_ps = np.loadtxt(filename_ps) # ells, clkk
+    cents, bclkk = binner.bin(*data_ps)
     data['cents'] = cents
     data['data_vector'][index] = np.array(bclkk)
     data['params'][index] = np.array([OmMs[index], S8s[index]])

@@ -42,11 +42,17 @@ OmMs, S8s = np.loadtxt(filename_cosmo, unpack=True, usecols=[3,4])
 for index in range(args.sim_start, args.sim_end+1):
     filename_ps = args.input_ps.replace(full_formatter,
                                         str(index).zfill(formatter_count))
-    data_ps = np.loadtxt(filename_ps) # ells, clkk
-    cents, bclkk = binner.bin(*data_ps)
+    try:
+        data_ells, data_ps = np.loadtxt(filename_ps, unpack=True) # ells, clkk
+    except FileNotFoundError:
+        print(f"Couldn't find {filename_ps}, skipping.")
+        continue
+
+    cents, bclkk = binner.bin(data_ells, data_ps)
     data['cents'] = cents
     data['data_vector'][index] = np.array(bclkk)
     data['params'][index] = np.array([OmMs[index], S8s[index]])
+    print(f"Added {filename_ps}.")
 
 np.save(args.output + ".npy", data)
 print(f"Saved data to {args.output}.npy.")

@@ -32,6 +32,9 @@ parser.add_argument("--output", type=str, required=True,
                          "doesn't exist, the script will create it.")
 parser.add_argument("--data-index", type=int,
                     help="Sim index to treat as target data vector.")
+parser.add_argument("--input-cosmo", type=str,
+                    default="/data6/sims/sbi_outputs_12092024/s8_200_omch2_200_cosmo_params.txt",
+                    help="Path to input file with cosmological parameters.")
 
 args = parser.parse_args()
 
@@ -72,8 +75,8 @@ full_data['normalized_data_sims'] = np.copy(data_zs) # data vectors for our simu
 full_data['target'] = full_data['normalized_data_sims'][DATA_INDEX]
 
 # LFI
-lower = np.array([0.15, 0.55])
-upper = np.array([0.49, 0.9])
+lower = np.array([0.1, 0.6])
+upper = np.array([0.5, 0.9])
 theta2d_expected_mean = [0.3, 0.75]
 prior = priors.Uniform(lower, upper)
 
@@ -107,16 +110,16 @@ NDEs = [ndes.ConditionalMaskedAutoregressiveFlow(n_parameters=nn,
 
 pn = ['p{0}'.format(i) for i in range(nn)]
 
+#os.makedirs(RESULTS_DIR, exist_ok=True)
+#os.makedirs(RESULTS_DIR + '/' + str(base), exist_ok=True)
+#os.system('rm ' + RESULTS_DIR + '/' + str(base) + '/*')
+os.makedirs(RESULTS_DIR, exist_ok=True)
 try:
-    os.makedirs(RESULTS_DIR)
-except FileExistsError:
+    os.mkdir(RESULTS_DIR+'/'+str(base))
+except:
     pass
 try:
-    os.makedirs(RESULTS_DIR + 'nde_' + str(base))
-except FileExistsError:
-    pass
-try:
-    os.system('rm ' + RESULTS_DIR + 'nde_' + str(base) + '/*')
+    os.system('rm '+RESULTS_DIR+'/'+str(base)+'/*')
 except:
     pass
 
@@ -129,15 +132,15 @@ full_data_sim_params = full_data['sim_params']
 DelfiEnsemble = delfi.Delfi(full_data_sim_median, 
                             prior, NDEs,
                             param_limits = [lower, upper],
-                            param_names = pn, 
-                            results_dir = RESULTS_DIR + f"/{str(base)}/")
+                            param_names = pn,
+                            results_dir = RESULTS_DIR + '/' + str(base) + '/')
 
 DelfiEnsemble.load_simulations(full_data_sim_array, full_data_sim_params)
 DelfiEnsemble.train_ndes()
 
 n_dim2d = nn
-n_burn2d = 4000
-n_steps2d = 20000
+n_burn2d = 1000
+n_steps2d = 10000
 n_walkers2d = nn * n_dim2d
 
 theta0_2d = np.array([list(initial_parameters(theta2d_expected_mean, 0.01))
@@ -164,17 +167,25 @@ print(f"Saved chains to {args.output}_final_chain.npy.")
 
 samples = MCSamples(samples=[final_chain[:,:,0].flatten(),
                              final_chain[:,:,1].flatten()],
-                    names = ['Om','s8'],labels = [r'\Omega_{\rm m}',r'S_8'],
+                    names = ['Om','s8'],labels = [r'\Omega_{\rm m}',r'\sigma_8'],
                     label='chain',
                     settings={'mult_bias_correction_order':1,
                               'smooth_scale_2D':0.4,
                               'smooth_scale_1D':0.2})
 
+cosmo = np.loadtxt(args.input_cosmo)
+data_cosmo = cosmo[cosmo[:,0] == DATA_INDEX][0]
+data_cosmo_Om, data_cosmo_s8 = data_cosmo[-2], data_cosmo[-1]
+
 plt.figure(figsize=(10,10))
 g = plots.get_subplot_plotter()
 
 g.triangle_plot([samples],['Om','s8'],legend_loc='upper right',
-                markers = full_data['sim_params'][DATA_INDEX])
+                param_limits = {'Om': (0.2, 0.4),
+                                's8': (0.65, 0.85)},
+                markers = {'Om': data_cosmo_Om,
+                           's8': data_cosmo_s8},
+                marker_args={'lw': 2})
 g.export(args.output + "_posteriors.png")
 
 print(f"Saved contour plot to {args.output}_posteriors.png.")

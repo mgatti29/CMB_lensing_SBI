@@ -39,7 +39,21 @@ import pytempura
 from astropy.coordinates import Angle
 
 
+'''
+DATA_FUNC():
+    load map
+    downgrade
+    FFT
+    deconvolve pixwin and apply k-space filter
 
+SIM_FUNC():
+    load alms
+    apply beam with almxfl
+    alm2map
+    FFT and apply pixel window and IFFT
+    add noise
+    pass to DATA_FUNC
+'''
 
 def doit(sim_num,MULTIPLE_SPLITS,add_noise,output_folder_general,cosmology, noisyB, SIMPLE_SIM, stages = []):
     
@@ -61,7 +75,7 @@ def doit(sim_num,MULTIPLE_SPLITS,add_noise,output_folder_general,cosmology, nois
     else:
         if not SIMPLE_SIM:
             outdir = output_folder_general+'/{0}_{1}_{2}_{3}_pair/'.format(cosmology,noise,sim_num,spl)
-            outdir_pair = output_folder_general+'/{0}_{1}_{2}_{3/'.format(cosmology,'noisy',sim_num,spl)
+            outdir_pair = output_folder_general+'/{0}_{1}_{2}_{3}/'.format(cosmology,'noisy',sim_num,spl)
         else:
             outdir = output_folder_general+'/SIMPLE_{0}_{1}_{2}_{3}_pair/'.format(cosmology,noise,sim_num,spl) 
             outdir_pair = output_folder_general+'/SIMPLE_{0}_{1}_{2}_{3}/'.format(cosmology,'noisy',sim_num,spl) 
@@ -87,7 +101,7 @@ def doit(sim_num,MULTIPLE_SPLITS,add_noise,output_folder_general,cosmology, nois
     # maps config --------------
     nside= 4096 # this is needed for the kappa map and the kappa_alm to lens the CMB maps. nside 1024 is good up to l ~2k., nside 4096 should pobably be our default here.
     arcmin_res_car = 1# this somehow determines also the resolution of the CAR maps. can't be too small. 
-    lmax = 2500 #6000 is the default for the ACT pipeline; but we can't really do it as class can't generate lensing cls a l>2500 (unlensed ones, yes, so when we will use N-bdy sims it will be OK)
+    lmax = 3000 #6000 is the default for the ACT pipeline; but we can't really do it as class can't generate lensing cls a l>2500 (unlensed ones, yes, so when we will use N-bdy sims it will be OK)
     mlmax = 4000 # this is used for lensing reconstruction
     lmin = 600 #this is used for lensing reconstruction
 
@@ -140,9 +154,6 @@ def doit(sim_num,MULTIPLE_SPLITS,add_noise,output_folder_general,cosmology, nois
                 'pa4a': 0.9584, 'pa5a': 0.9646, 'pa5b': 0.9488,
                 'pa6a': 0.9789, 'pa6b': 0.9656
             }
-
-
-
 
 
 
@@ -377,6 +388,8 @@ def doit(sim_num,MULTIPLE_SPLITS,add_noise,output_folder_general,cosmology, nois
 
             # Convert the alms to a map, convolved with the beam
             sigmap_conv = cs.alm2map(alm_TEB, imap)
+            # apply the pixel window function [never apply this to noise!]
+            sigmap_conv = enmap.apply_window(sigmap_conv)
 
             del alm_TEB
             gc.collect()
@@ -803,6 +816,7 @@ def doit(sim_num,MULTIPLE_SPLITS,add_noise,output_folder_general,cosmology, nois
 
                     # deconvolve beam ----------------------------------------------
                     # Pixel window deconvolution, 5.4. [https://arxiv.org/pdf/2304.05202]
+                    # #enmap.unapply_window(smap_downgraded)
                     for sp in frogress.bar(range(nsplits)):
                         if not os.path.exists(outdir+'dmap_{0}_{1}'.format(sp,qid)):
                             if data_run:
@@ -816,7 +830,7 @@ def doit(sim_num,MULTIPLE_SPLITS,add_noise,output_folder_general,cosmology, nois
                                 alm_decon = cs.almxfl(alm,lambda ell:1/gauss_beam(ell,beam_fwhm))
                                 imap = enmap.empty((3,)+mask.shape,mask.wcs,dtype=np.float32)
                                 smap = cs.alm2map(alm_decon,imap)
-                            dmap = kspace_mask(smap,vk_mask=[-1*90,90], hk_mask=[-1*50,50],deconvolve=True)
+                            dmap = kspace_mask(smap,vk_mask=[-1*90,90], hk_mask=[-1*50,50],deconvolve=True) # this also deconvolves by the pixel window function [deconvolve = True]
                             enmap.write_map(outdir+'dmap_{0}_{1}'.format(sp,qid),dmap)
                             dmap = enmap.read_map(outdir+'dmap_{0}_{1}'.format(sp,qid))
 
@@ -891,8 +905,13 @@ def doit(sim_num,MULTIPLE_SPLITS,add_noise,output_folder_general,cosmology, nois
             else:
                 f_shape = map_splits[0][0].shape
                 f_wcs = map_splits[0][0].wcs
-                alms=cs.map2alm(map_splits,lmax=lmax)[0]
                 
+                
+                print (len(map_splits),len(map_splits[0]))
+                map_splits[0] = enmap.unapply_window(map_splits[0])
+                
+                
+                alms=cs.map2alm(map_splits,lmax=lmax)[0]
                              
                 alm_decon = cs.almxfl(alms,lambda ell:1/gauss_beam(ell,beam_fwhm))
                 almsTcal=alm_decon[0]#cs.almxfl(alms[0],1/cal)
@@ -947,7 +966,7 @@ def doit(sim_num,MULTIPLE_SPLITS,add_noise,output_folder_general,cosmology, nois
     
     # filter
 
-    if not os.path.exists(outdir+'TEB_smoothed_cls1.npy'):
+    if not os.path.exists(outdir+'TEB_smoothed_cls.npy'):
         # load TEB_alms, smooth them (why?), and then computes TT,EE,BB,TE cls.
     
         mask_path = path_files + "/mask/act_mask_fejer1_20220316_GAL070_rms_70.00_downgrade_3dg.fits"
@@ -971,15 +990,20 @@ if __name__ == '__main__':
     if SYSTEM == 'niagara':
         output_folder_general = '/scratch/r/rbond/jaejoonk/CMB_lensing_maps/sims/'
     else:
-        output_folder_general = '/pscratch/sd/m/mgatti/CMB_lensing_maps_sims/'
+        output_folder_general = '/pscratch/sd/m/mgatti/CMB_lensing_maps_sims_1split_masked/'
     
+    try:
+        if not os.path.exists(output_folder_general):
+            os.mkdir(output_folder_general)
+    except:
+        pass
     
     MULTIPLE_SPLITS = False
     add_noise = True
     tot_realisations = 40
     cosmology = 'fiducial'
     noisyB = True #
-    SIMPLE_SIM = True
+    SIMPLE_SIM = False
     
     
     # Figure out which runs you have to do ---------------------
@@ -1033,11 +1057,11 @@ if __name__ == '__main__':
     # Loop over tasks
     while run_count < len(runstodo):
         # Each process works on its own task
-        try:
-        #if 1 ==1:
+        #try:
+        if 1 ==1:
             doit(runstodo[run_count],MULTIPLE_SPLITS,add_noise,output_folder_general,cosmology ,noisyB, SIMPLE_SIM,stages = ['kspace_coadd','inpaint','downgrade','add_noise','make_alms'])
-        except:
-            pass
+        #except:
+        #    pass
         # Increment run_count by the size of the communicator to move to the next task for this process
         run_count += size
 
@@ -1047,6 +1071,6 @@ if __name__ == '__main__':
 module load python
 source activate cmb_lensing_env
 module load PrgEnv-intel
-srun --nodes=4 --tasks-per-node=10  python make_CMB_lensing_mocks_theory.py
+srun --nodes=4 --tasks-per-node=4  python make_CMB_lensing_mocks_theory.py
 '''
 

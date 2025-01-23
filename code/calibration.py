@@ -81,6 +81,7 @@ def calibrate():
     if rank == 0:
         print ('----- FILTER  ------')
         print ('')
+        print ('nsims_noisy ',nsims_noisy)
 
     noisy_sims_alms = []
     count = 0
@@ -92,12 +93,14 @@ def calibrate():
             if cls.shape[1] ==mlmax +1 :
                 noisy_sims_alms.append(cls) 
                 count +=1 
-            else:
-                outdir = output_folder_general+'/{0}_{1}_{2}_{3}/'.format('fiducial','noisy',i,spl)
-                cls = np.load(outdir+'TEB_smoothed_cls.npy',allow_pickle=True)
-                if cls.shape[1] ==mlmax +1 :
-                    noisy_sims_alms.append(cls) 
-                    count +=1      
+        else:
+            outdir = output_folder_general+'/{0}_{1}_{2}_{3}/'.format('fiducial','noisy',i,spl)
+
+
+            cls = np.load(outdir+'TEB_smoothed_cls.npy',allow_pickle=True)
+            if cls.shape[1] ==mlmax +1 :
+                noisy_sims_alms.append(cls) 
+                count +=1      
        # except:
        #     pass
 
@@ -310,7 +313,10 @@ def calibrate():
             print ('Doing stack #{0} [sims {1} -{2}]'.format(stack,init,end))
 
             for i in frogress.bar(range(init,end)):
-                outdir = f'{output_folder_general}/fiducial_noiseless_{i}_{spl}/'
+                if SIMPLE_SIM:
+                    outdir = f'{output_folder_general}/SIMPLE_fiducial_noiseless_{i}_{spl}/'
+                else:
+                    outdir = f'{output_folder_general}/fiducial_noiseless_{i}_{spl}/'
                 xy = np.load(outdir+'/xy.npy',allow_pickle=True)
 
 
@@ -433,21 +439,19 @@ if __name__ == '__main__':
     These scripts don't need a "target" simulations, but only noisy/noiseless sims at fiducial cosmology.
     '''
     
-    output_folder_general = '/pscratch/sd/m/mgatti/CMB_lensing_maps_sims/'
+    output_folder_general = '/pscratch/sd/m/mgatti/CMB_lensing_maps_sims_1split_masked/'
+    
     path_files = '/pscratch/sd/j/jaejoonk/lensing_pipeline_data/'
 
     MULTIPLE_SPLITS = False
-    SIMPLE_SIM = True
+    SIMPLE_SIM = False
     lmin = 600
     lmax = 2500
     mlmax =  4000
     nsims_noisy = 40
     nsims_noiseless = 40 
     nsimsB = 40
-    
     target_sim_i = 0
-
-
 
     if MULTIPLE_SPLITS:
         spl = '8split'
@@ -474,12 +478,17 @@ if __name__ == '__main__':
     if SIMPLE_SIM:
         base = output_folder_general+'/SIMPLE_Calibration_quantities_{0}_{1}/'.format('fiducial',spl)
         if not os.path.exists(base):
-            os.mkdir(base)      
+            try:
+                os.mkdir(base)     
+            except:
+                pass
     else:
         base = output_folder_general+'/Calibration_quantities_{0}_{1}/'.format('fiducial',spl)
         if not os.path.exists(base):
-            os.mkdir(base)
-        
+            try:
+                os.mkdir(base)
+            except:
+                pass
         
     # Calibration -----
     # this computes calibration factors at fiducial cosmology -----------------------------------------------
@@ -572,5 +581,5 @@ if __name__ == '__main__':
 module load python
 source activate cmb_lensing_env
 module load PrgEnv-intel
-srun --nodes=4 --tasks-per-node=10 python calibration.py
+srun --nodes=4 --tasks-per-node=3 python calibration.py
 '''

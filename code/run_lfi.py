@@ -7,7 +7,6 @@ import os
 import sys
 import argparse
 import warnings
-import copy
 
 import tensorflow as tf
 from tensorflow.keras.models import Sequential
@@ -110,18 +109,18 @@ NDEs = [ndes.ConditionalMaskedAutoregressiveFlow(n_parameters=nn,
 
 pn = ['p{0}'.format(i) for i in range(nn)]
 
-#os.makedirs(RESULTS_DIR, exist_ok=True)
-#os.makedirs(RESULTS_DIR + '/' + str(base), exist_ok=True)
-#os.system('rm ' + RESULTS_DIR + '/' + str(base) + '/*')
 os.makedirs(RESULTS_DIR, exist_ok=True)
-try:
-    os.mkdir(RESULTS_DIR+'/'+str(base))
-except:
-    pass
-try:
-    os.system('rm '+RESULTS_DIR+'/'+str(base)+'/*')
-except:
-    pass
+os.makedirs(RESULTS_DIR + '/nde_' + str(base), exist_ok=True)
+os.system('rm ' + RESULTS_DIR + '/nde_' + str(base) + '/*')
+#os.makedirs(RESULTS_DIR, exist_ok=True)
+#try:
+#    os.mkdir(RESULTS_DIR+'/'+str(base))
+#except:
+#    pass
+#try:
+#    os.system('rm '+RESULTS_DIR+'/'+str(base)+'/*')
+#except:
+#    pass
 
 # abbreviations
 full_data_sim_array = np.array(full_data['normalized_data_sims'],dtype='float')
@@ -139,8 +138,8 @@ DelfiEnsemble.load_simulations(full_data_sim_array, full_data_sim_params)
 DelfiEnsemble.train_ndes()
 
 n_dim2d = nn
-n_burn2d = 1000
-n_steps2d = 10000
+n_burn2d = 100
+n_steps2d = 1000
 n_walkers2d = nn * n_dim2d
 
 theta0_2d = np.array([list(initial_parameters(theta2d_expected_mean, 0.01))
@@ -181,8 +180,8 @@ plt.figure(figsize=(10,10))
 g = plots.get_subplot_plotter()
 
 g.triangle_plot([samples],['Om','s8'],legend_loc='upper right',
-                param_limits = {'Om': (0.2, 0.4),
-                                's8': (0.65, 0.85)},
+#                param_limits = {'Om': (0.2, 0.4),
+#                                's8': (0.65, 0.85)},
                 markers = {'Om': data_cosmo_Om,
                            's8': data_cosmo_s8},
                 marker_args={'lw': 2})
